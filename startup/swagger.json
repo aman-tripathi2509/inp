@@ -1,0 +1,1477 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "INP",
+    "version": "1.0.0",
+    "description": "API documentation for INP"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local server"
+    }
+  ],
+  "paths": {
+    "/api/user/signup": {
+      "post": {
+        "summary": "Register a new user",
+        "tags": ["Users"],
+        "description": "Registers a new user with name, email, and password.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "example": "John Doe"
+                  },
+                  "email": {
+                    "type": "string",
+                    "example": "john.doe@example.com"
+                  },
+                  "password": {
+                    "type": "string",
+                    "example": "Password@123"
+                  }
+                },
+                "required": ["name", "email", "password"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "User registered successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "User registered successfully"
+                    },
+                    "token": {
+                      "type": "string",
+                      "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing fields or user already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "All fields are required or User already exists"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Database error"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/inp-signup": {
+      "post": {
+        "summary": "Register a new user with INP directly",
+        "tags": ["Users"],
+        "description": "Registers a new user with Full Name and Email.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "example": "John Doe"
+                  },
+                  "email": {
+                    "type": "string",
+                    "example": "john.doe@example.com"
+                  }
+                },
+                "required": ["name", "email"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "User registered successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "User registered successfully"
+                    },
+                    "token": {
+                      "type": "string",
+                      "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing fields or user already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "All fields are required or User already exists"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Database error"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/login": {
+      "post": {
+        "summary": "Login with email or username",
+        "tags": ["Users"],
+        "description": "Authenticate the user using either email or username and password.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "useremail": {
+                    "type": "string",
+                    "example": "john.doe@example.com",
+                    "description": "Email or username"
+                  },
+                  "password": {
+                    "type": "string",
+                    "example": "Password@123"
+                  }
+                },
+                "required": ["useremail", "password"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "User logged in successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Login successful"
+                    },
+                    "token": {
+                      "type": "string",
+                      "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Username/Email and password are required"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Invalid username/email or password"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Database error"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/survey/countries": {
+      "post": {
+        "summary": "Get all countries",
+        "tags": ["Countries"],
+        "description": "Fetches a list of all countries without requiring any parameters.",
+        "responses": {
+          "200": {
+            "description": "Countries fetched successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "countries fetched successfully"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "country_name": {
+                            "type": "string",
+                            "example": "Afghanistan"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Error fetching countries"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/survey/sectors": {
+      "post": {
+        "summary": "Get all sectors",
+        "tags": ["Sectors"],
+        "description": "Fetches a list of all sectors without requiring any parameters.",
+        "responses": {
+          "200": {
+            "description": "Sectors fetched successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "sectors fetched successfully"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "answer": {
+                            "type": "string",
+                            "example": "Art & Design"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Error fetching sectors"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/survey/industries": {
+      "post": {
+        "summary": "Get all industries",
+        "tags": ["Industries"],
+        "description": "Fetches a list of all industries without requiring any parameters.",
+        "responses": {
+          "200": {
+            "description": "Industries fetched successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "industries fetched successfully"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "answer": {
+                            "type": "string",
+                            "example": "Arts"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Error fetching industries"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/contact_us/": {
+      "post": {
+        "summary": "contact_us API",
+        "tags": ["contact"],
+        "description": "contact_us API with name, email, phone no, contact_method and message.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "example": "John Doe"
+                  },
+                  "email": {
+                    "type": "string",
+                    "example": "john.doe@example.com"
+                  },
+                  "phone_no": {
+                    "type": "string",
+                    "example": "+911234567890"
+                  },
+                  "contact_method": {
+                    "type": "string",
+                    "example": "Email"
+                  },
+                  "message": {
+                    "type": "string",
+                    "example": "I am interested in your services."
+                  }
+                },
+                "required": ["name", "email", "phone_no","contact_method","message"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "contact details have been saved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Thank you for reaching out to us! Your message has been successfully submitted. We will get back to you soon."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "All fields are required"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Database error"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/autoSuggest/": {
+      "post": {
+        "summary": "auto-suggest API",
+        "tags": ["Autosuggest"],
+        "description": "Autosuggest company_name , ceo, legal_name for search bar.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "search": {
+                    "type": "string",
+                    "example": "tri"
+                  }
+                },
+                "required": ["search"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "AutoSuggest details fetched successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "AutoSuggest details fetched successfully"
+                    },
+                    "companyDetails": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "company_name": {
+                            "type": "string",
+                            "example": "Trinity Academy of Engineering"
+                          }
+                        }
+                      }
+                    },
+                    "userDetails": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                "last_name": { "type": "string", "example": "Tripathi" },
+                "enter_city": { "type": "string", "example": "Thiruvananthapuram" }
+                        },
+                        "additionalProperties": false
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Search field is required"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Database error"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/api/user/update": {
+      "post": {
+        "summary": "Update user_demographic_details user table",
+        "tags": ["update"],
+        "description": "update the entire user_details in the user_demographic_details user table like first_name, last_name, email, gender, dob,etc. based on member_id",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "member_id": {
+                    "type": "integer",
+                    "example": 2025103
+                  },
+                  "username": {
+                      "type": "string",
+                      "example": "john_doe"
+                    },
+                    "password": {
+                      "type": "string",
+                      "example": "StrongP@ssw0rd!"
+                    },
+                    "work_email": {
+                      "type": "string",
+                      "example": "john.doe@company.com"
+                    },
+                    "mobile": {
+                      "type": "string",
+                      "example": "+1234567890"
+                    },
+                    "first_name": {
+                      "type": "string",
+                      "example": "John"
+                    },
+                    "middle_name": {
+                      "type": "string",
+                      "example": "Michael"
+                    },
+                    "last_name": {
+                      "type": "string",
+                      "example": "Doe"
+                    },
+                    "profile_photo": {
+                      "type": "string",
+                      "example": "https://example.com/profile/john.jpg"
+                    },
+                    "gender": {
+                      "type": "string",
+                      "example": "Male"
+                    },
+                    "dob": {
+                      "type": "string",
+                      "example": "1990-01-01"
+                    },
+                    "year_of_birth": {
+                      "type": "string",
+                      "example": "1990"
+                    },
+                    "age_entered": {
+                      "type": "string",
+                      "example": "34"
+                    },
+                    "age_calculated": {
+                      "type": "string",
+                      "example": "34"
+                    },
+                    "country": {
+                      "type": "string",
+                      "example": "United States"
+                    },
+                    "state": {
+                      "type": "string",
+                      "example": "California"
+                    },
+                    "enter_city": {
+                      "type": "string",
+                      "example": "Los Angeles"
+                    },
+                    "twitter": {
+                      "type": "string",
+                      "example": "https://twitter.com/johndoe"
+                    },
+                    "instagram": {
+                      "type": "string",
+                      "example": "https://instagram.com/johndoe"
+                    },
+                    "facebook": {
+                      "type": "string",
+                      "example": "https://facebook.com/johndoe"
+                    },
+                    "linkedin": {
+                      "type": "string",
+                      "example": "https://linkedin.com/in/johndoe"
+                    },
+                    "household_income": {
+                      "type": "string",
+                      "example": "$75,000 - $100,000"
+                    },
+                    "work_status": {
+                      "type": "string",
+                      "example": "Employed Full-Time"
+                    },
+                    "employement_status": {
+                      "type": "string",
+                      "example": "Permanent"
+                    },
+                    "profession_type": {
+                      "type": "string",
+                      "example": "Software Developer"
+                    },
+                    "work_experience": {
+                      "type": "string",
+                      "example": "5 years"
+                    },
+                    "work_experience_current_company": {
+                      "type": "string",
+                      "example": "2 years"
+                    },
+                    "seniority_level": {
+                      "type": "string",
+                      "example": "Mid-Level"
+                    },
+                    "job_responsibilities": {
+                      "type": "string",
+                      "example": "Developing backend APIs and managing databases"
+                    },
+                    "company_type": {
+                      "type": "string",
+                      "example": "Private"
+                    },
+                    "business_model": {
+                      "type": "string",
+                      "example": "B2B SaaS"
+                    },
+                    "employee_size": {
+                      "type": "string",
+                      "example": "201-500"
+                    },
+                    "company_revenue": {
+                      "type": "string",
+                      "example": "$10M - $50M"
+                    },
+                    "headquarter": {
+                      "type": "string",
+                      "example": "San Francisco, CA"
+                    },
+                    "about_product_and_services": {
+                      "type": "string",
+                      "example": "Cloud-based CRM and sales automation platform"
+                    },
+                    "highest_education": {
+                      "type": "string",
+                      "example": "Master's Degree"
+                    },
+                    "zip_code": {
+                      "type": "string",
+                      "example": "90001"
+                    },
+                    "mailing_address": {
+                      "type": "string",
+                      "example": "123 Main St, Los Angeles, CA"
+                    },
+                    "about_user": {
+                      "type": "string",
+                      "example": "Passionate software engineer with 5 years of experience."
+                    },
+                    "company_id": {
+                      "type": "integer",
+                      "example": 145
+                    },
+                    "company_name": {
+                      "type": "string",
+                      "example": "Tech Solutions Inc."
+                    },
+                    "company_url": {
+                      "type": "string",
+                      "example": "https://www.techsolutions.com"
+                    },
+                    "job_title": {
+                      "type": "string",
+                      "example": "Backend Engineer"
+                    },
+                    "department": {
+                      "type": "string",
+                      "example": "Engineering"
+                    },
+                    "user_id": {
+                      "type": "integer",
+                      "example": 12345
+                    },
+                    "sector_and_industry": {
+                      "type": "string",
+                      "example": "Information Technology - Software"
+                    }                  
+                },
+                "required": ["member_id"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "updated user_demographic_details table successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "updated user_demographic_details table successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "member_id is required"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Database error"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/api/user/fetchUserData": {
+      "post": {
+        "summary": "fetch complete data from user_demographic_details table",
+        "tags": ["fetch"],
+        "description": "fetch all users data from user_demographic_table",
+        "responses": {
+          "200": {
+            "description": "data is successfully fetched from user_demographic_details table",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "data is successfully fetched from user_demographic_details table"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "server could not understand the client's request due to a problem with the request itself"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Database error"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/api/company/companyEmployee": {
+      "post": {
+        "summary": "fetch data from user_demographic_details table based on company_id",
+        "tags": ["fetch"],
+        "description": "fetch  complete user data from user_demographic_details table based on company_id",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "company_id": {
+                    "type": "integer",
+                    "example": 2025103
+                  }              
+                },
+                "required": ["company_id"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "fetched data from user_demographic_details table successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "fetched data from user_demographic_details table successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "company_id is required to fetch the data"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Database error"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/api/saveFeedback": {
+      "post": {
+        "summary": "save the employee feedback data in the inp_employee_feedback table",
+        "tags": ["User Feedback"],
+        "description": "save the employee feedback data in the inp_employee_feedback table",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "member_id": {
+                    "type": "integer",
+                    "example": 2025103
+                  },
+                  "company_id": {
+                    "type": "integer",
+                    "example": 178
+                  },
+                  "employee_satisfaction_rating": {
+                    "type": "float",
+                    "example": 2.4
+                  },
+                  "company_culture_rating": {
+                    "type": "float",
+                    "example": 1.5
+                  },
+                  "easy_of_working_rating": {
+                    "type": "float",
+                    "example": 2.6
+                  },
+                  "work_life_balance_rating": {
+                    "type": "float",
+                    "example": 3.2
+                  },
+                  "top_management_rating": {
+                    "type": "float",
+                    "example": 2.3
+                  }, 
+                  "hr_attitute_rating": {
+                    "type": "float",
+                    "example": 3.5
+                  },
+                  "ceo_rating": {
+                    "type": "float",
+                    "example": 5
+                  }
+                },
+                "required": ["member_id","company_id","employee_satisfaction_rating","company_culture_rating",
+                "easy_of_working_rating","work_life_balance_rating","top_management_rating","hr_attitute_rating","ceo_rating"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "employee Feedback data is saved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Feedback data is saved successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "All fields are required"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Database error"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/api/employeeFeedbackData": {
+      "post": {
+        "summary": "fetch employee feedback data based on company_id",
+        "tags": ["User Feedback"],
+        "description": "fetch employee feedback data based on company_id",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "company_id": {
+                    "type": "integer",
+                    "example": 178
+                  }
+                },
+                "required": ["company_id"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "employee Feedback data is fetched successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Feedback data is fetched successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "company_id is required"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Database error"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/api/company/data": {
+        "post": {
+          "summary": "company details and user details api",
+          "tags": ["Company and user data search API"],
+          "description": "Returns a list of company and user data based on optional filters and pagination.",
+          "parameters": [
+            {
+              "name": "page",
+              "in": "query",
+              "description": "Page number for paginated results (optional)",
+              "required": false,
+              "schema": {
+                "type": "integer",
+                "default": 1,
+                "minimum": 1
+              }
+            }
+          ],
+          "requestBody": {
+            "required": false,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "search": { "type": "string", "example": "developer" },
+                    "job_title": { "type": "string", "example": "Software Engineer" },
+                    "location": { "type": "string", "example": "New York" },
+                    "company_name": { "type": "string", "example": "Google" },
+                    "industry": { "type": "string", "example": "Technology" },
+                    "employees": { "type": "string", "example": "100-500" },
+                    "revenue": { "type": "string", "example": "$1M-$10M" }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Filtered company and data fetched successfully",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "message": {
+                        "type": "string",
+                        "example": "company details fetched succesfully"
+                      },
+                      "data": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "company_id": {
+                              "type": "integer",
+                              "example": 12
+                            },
+                            "company_name": {
+                              "type": "string",
+                              "example": "TCS"
+                            },
+                            "legal_name": {
+                              "type": ["string"],
+                              "example": "sourav"
+                            },
+                            "ceo": {
+                              "type": "string",
+                              "example": "K. Krithivasan"
+                            },
+                            "company_url": {
+                              "type": "string",
+                              "example": "tcs.com"
+                            },
+                            "answers": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "company_id": {
+                                    "type": "integer",
+                                    "example": 12
+                                  },
+                                  "question_id": {
+                                    "type": "integer",
+                                    "example": 39
+                                  },
+                                  "answer": {
+                                    "type": "string",
+                                    "example": "46,76,83,111,235,236"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "userDetails": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer",
+                            "example": 1
+                          },
+                          "username": {
+                            "type": ["string", "null"],
+                            "example": null
+                          },
+                          "member_id": {
+                            "type": "integer",
+                            "example": 202510001
+                          },
+                          "personal_email": {
+                            "type": "string",
+                            "example": "aman@gmail.com"
+                          },
+                          "work_email": {
+                            "type": "string",
+                            "example": ""
+                          },
+                          "mobile": {
+                            "type": "string",
+                            "example": ""
+                          },
+                          "first_name": {
+                            "type": "string",
+                            "example": "aman"
+                          },
+                          "middle_name": {
+                            "type": "string",
+                            "example": ""
+                          },
+                          "last_name": {
+                            "type": "string",
+                            "example": ""
+                          },
+                          "country": {
+                            "type": "string",
+                            "example": ""
+                          },
+                          "state": {
+                            "type": "string",
+                            "example": ""
+                          },
+                          "enter_city": {
+                            "type": "string",
+                            "example": ""
+                          },
+                          "facebook": {
+                            "type": "string",
+                            "example": ""
+                          },
+                          "linkedin": {
+                            "type": "string",
+                            "example": ""
+                          },
+                          "twitter": {
+                            "type": "string",
+                            "example": ""
+                          },
+                          "instagram": {
+                            "type": "string",
+                            "example": ""
+                          },
+                          "company_id": {
+                            "type": ["integer", "null"],
+                            "example": null
+                          },
+                          "company_name": {
+                            "type": "string",
+                            "example": ""
+                          },
+                          "company_url": {
+                            "type": ["string", "null"],
+                            "example": null
+                          },
+                          "job_title": {
+                            "type": ["string", "null"],
+                            "example": null
+                          },
+                          "department": {
+                            "type": ["string", "null"],
+                            "example": null
+                          },
+                          "user_id": {
+                            "type": ["string", "null"],
+                            "example": null
+                          },
+                          "sector_and_industry": {
+                            "type": ["string", "null"],
+                            "example": null
+                          }
+                        }
+                      }
+                    },
+                      "currentPage": {
+                        "type": "integer",
+                        "example": 1
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "message": {
+                        "type": "string",
+                        "example": "Invalid filter parameters"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "500": {
+              "description": "Internal server error",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "message": {
+                        "type": "string",
+                        "example": "Something went wrong"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+  
+  
+    "components": {
+      "schemas": {
+        "User": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "User's full name"
+            },
+            "email": {
+              "type": "string",
+              "description": "User's email address"
+            },
+            "password": {
+              "type": "string",
+              "description": "User's password"
+            }
+          }
+        }
+      },
+      "securitySchemes": {
+        "BearerAuth": {
+          "type": "http",
+          "scheme": "bearer",
+          "bearerFormat": "JWT"
+        }
+      }
+    },
+    "security": [
+      {
+        "BearerAuth": []
+      }
+    ]
+}
