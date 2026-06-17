@@ -1,6 +1,4 @@
 const Survey = require("../models/surveyModel");
-const { get } = require("../routes/surveyRoutes");
-const { getSectors, getIndustries, getSubIndustries } = require('../models/surveyModel');
 
 const QUESTION_IDS = {
     sector: 68,
@@ -10,17 +8,23 @@ const QUESTION_IDS = {
 const getSectorIndustryHierarchy = async (req, res) => {
     try {
         // Fetch sectors
-        const sectors = await getSectors(QUESTION_IDS.sector);
+        const sectors = await Survey.getSectors(QUESTION_IDS.sector);
         const finalResult = [];
 
         for (const sector of sectors) {
             // Fetch industries for this sector
-            const industries = await getIndustries(QUESTION_IDS.industry, sector.question_answer_id);
+            const industries = await Survey.getIndustries(
+            QUESTION_IDS.industry,
+            sector.question_answer_id
+            );
             const industryList = [];
 
             for (const industry of industries) {
                 // Fetch sub-industries for this industry
-                const subIndustries = await getSubIndustries(QUESTION_IDS.subIndustry, industry.question_answer_id);
+                const subIndustries = await Survey.getSubIndustries(
+                QUESTION_IDS.subIndustry,
+                industry.question_answer_id
+                );
 
                 industryList.push({
                     id: industry.question_answer_id,
@@ -508,97 +512,29 @@ const getAvailableSurveys = async (req, res) => {
     }
 };
 
-// const getDraftSurveys = async (req, res) => {
+/**
+ * Get Sectors
+ */
+const getSectors = async (req, res) => {
+    try {
 
-//     try {
+        const sectors = await Survey.getSectors(68);
 
-//         const member_id = req.user.member_id;
+        return res.status(200).json({
+            success: true,
+            message: "Sectors fetched successfully",
+            data: sectors
+        });
 
-//         const surveys = await Survey.getDraftSurveys(member_id);
+    } catch (error) {
+        console.error("Error fetching sectors:", error);
 
-//         return res.status(200).json({
-//             success: true,
-//             total_draft_surveys: surveys.length,
-//             data: surveys
-//         });
-
-//     } catch (error) {
-
-//         return res.status(500).json({
-//             success: false,
-//             message: error.message
-//         });
-//     }
-// };
-
-// const getPublishedSurveys = async (req, res) => {
-
-//     try {
-
-//         const member_id = req.user.member_id;
-
-//         const surveys = await Survey.getPublishedSurveys(member_id);
-
-//         return res.status(200).json({
-//             success: true,
-//             total_published_surveys: surveys.length,
-//             data: surveys
-//         });
-
-//     } catch (error) {
-
-//         return res.status(500).json({
-//             success: false,
-//             message: error.message
-//         });
-//     }
-// };
-
-// const getClosedSurveys = async (req, res) => {
-
-//     try {
-
-//         const member_id = req.user.member_id;
-
-//         const surveys = await Survey.getClosedSurveys(member_id);
-
-//         return res.status(200).json({
-//             success: true,
-//             total_closed_surveys: surveys.length,
-//             data: surveys
-//         });
-
-//     } catch (error) {
-
-//         return res.status(500).json({
-//             success: false,
-//             message: error.message
-//         });
-//     }
-// };
-
-// const getDeletedSurveys = async (req, res) => {
-
-//     try {
-
-//         const member_id = req.user.member_id;
-
-//         const surveys = await Survey.getDeletedSurveys(member_id);
-
-//         return res.status(200).json({
-//             success: true,
-//             total_deleted_surveys: surveys.length,
-//             data: surveys
-//         });
-
-//     } catch (error) {
-
-//         return res.status(500).json({
-//             success: false,
-//             message: error.message
-//         });
-//     }
-// };
+        return res.status(500).json({
+            success: false,
+            message: "Internal Server Error"
+        });
+    }
+};
 
 module.exports = {saveSurveyDetails,
     updateSurveyDetails,
@@ -609,4 +545,5 @@ module.exports = {saveSurveyDetails,
     archiveSurvey,
     getMySurveys,
     getAvailableSurveys,
+    getSectors,
      getSectorIndustryHierarchy, get_Countries, get_CompanySize, get_CompanyRevenue};

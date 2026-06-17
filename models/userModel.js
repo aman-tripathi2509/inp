@@ -41,7 +41,8 @@ const createUser = async (
     email,
     password,
     company_name,
-    sector_industry
+    sector,
+    industry
 ) => {
 
     const connection = await db.getConnection();
@@ -144,16 +145,18 @@ const createUser = async (
             INSERT INTO user_profiles
             (
                 u_id,
-                sector_industry
+                sector,
+                industry
             )
-            VALUES (?, ?)
+            VALUES (?, ?, ?)
         `;
 
         await connection.query(
             profileSql,
             [
                 userId,
-                sector_industry
+                sector,
+                industry
             ]
         );
 
