@@ -536,6 +536,38 @@ const getSectors = async (req, res) => {
     }
 };
 
+/**
+ * Get Indusctries based on sector_id
+ */
+
+const getIndustries = async (req, res) => {
+    try {
+
+        const { sector_id } = req.body;
+        if (!sector_id) {
+            return res.status(400).json({
+                success: false,
+                message: "sector_id is required in request body"
+            });
+        }
+        const industries = await Survey.getIndustries(69, sector_id);
+
+        return res.status(200).json({
+            success: true,
+            message: "Industries fetched successfully",
+            data: industries
+        });
+
+    } catch (error) {
+        console.error("Error fetching industries:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal Server Error"
+        });
+    }
+};
+
 module.exports = {saveSurveyDetails,
     updateSurveyDetails,
     saveSurveyQuestions,
@@ -546,4 +578,4 @@ module.exports = {saveSurveyDetails,
     getMySurveys,
     getAvailableSurveys,
     getSectors,
-     getSectorIndustryHierarchy, get_Countries, get_CompanySize, get_CompanyRevenue};
+     getSectorIndustryHierarchy, get_Countries, get_CompanySize, get_CompanyRevenue, getIndustries};

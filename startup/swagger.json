@@ -1,1477 +1,3002 @@
 {
   "openapi": "3.0.0",
   "info": {
-    "title": "INP",
+    "title": "INP API",
     "version": "1.0.0",
-    "description": "API documentation for INP"
+    "description": "API documentation for the INP backend routes mounted by the application."
   },
   "servers": [
     {
-      "url": "http://localhost:3000",
+      "url": "http://localhost:5000",
       "description": "Local server"
     }
   ],
+  "tags": [
+    {
+      "name": "Health"
+    },
+    {
+      "name": "Users"
+    },
+    {
+      "name": "User Lookups"
+    },
+    {
+      "name": "Admin Users"
+    },
+    {
+      "name": "Companies"
+    },
+    {
+      "name": "Admin Companies"
+    },
+    {
+      "name": "Signup Requests"
+    },
+    {
+      "name": "Surveys"
+    },
+    {
+      "name": "Survey Master Data"
+    },
+    {
+      "name": "Contact"
+    },
+    {
+      "name": "Autosuggest"
+    },
+    {
+      "name": "Referrals"
+    },
+    {
+      "name": "Data Suggestions"
+    },
+    {
+      "name": "Employee Feedback"
+    }
+  ],
   "paths": {
-    "/api/user/signup": {
-      "post": {
-        "summary": "Register a new user",
-        "tags": ["Users"],
-        "description": "Registers a new user with name, email, and password.",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "example": "John Doe"
-                  },
-                  "email": {
-                    "type": "string",
-                    "example": "john.doe@example.com"
-                  },
-                  "password": {
-                    "type": "string",
-                    "example": "Password@123"
-                  }
-                },
-                "required": ["name", "email", "password"]
-              }
-            }
-          }
-        },
+    "/users": {
+      "get": {
+        "summary": "Test database users query",
+        "tags": [
+          "Health"
+        ],
         "responses": {
-          "201": {
-            "description": "User registered successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "User registered successfully"
-                    },
-                    "token": {
-                      "type": "string",
-                      "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request - missing fields or user already exists",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "All fields are required or User already exists"
-                    }
-                  }
-                }
-              }
-            }
+          "200": {
+            "$ref": "#/components/responses/Success"
           },
           "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Database error"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Error"
           }
         }
       }
     },
-    "/api/user/inp-signup": {
+    "/api/user/signup": {
       "post": {
-        "summary": "Register a new user with INP directly",
-        "tags": ["Users"],
-        "description": "Registers a new user with Full Name and Email.",
+        "summary": "Register a user",
+        "tags": [
+          "Users"
+        ],
         "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "example": "John Doe"
-                  },
-                  "email": {
-                    "type": "string",
-                    "example": "john.doe@example.com"
-                  }
-                },
-                "required": ["name", "email"]
-              }
-            }
-          }
+          "$ref": "#/components/requestBodies/UserSignup"
         },
         "responses": {
           "201": {
-            "description": "User registered successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "User registered successfully"
-                    },
-                    "token": {
-                      "type": "string",
-                      "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Created"
           },
           "400": {
-            "description": "Bad request - missing fields or user already exists",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "All fields are required or User already exists"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/BadRequest"
           },
           "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Database error"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Error"
           }
         }
       }
     },
     "/api/user/login": {
       "post": {
-        "summary": "Login with email or username",
-        "tags": ["Users"],
-        "description": "Authenticate the user using either email or username and password.",
+        "summary": "Log in a user",
+        "tags": [
+          "Users"
+        ],
         "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "useremail": {
-                    "type": "string",
-                    "example": "john.doe@example.com",
-                    "description": "Email or username"
-                  },
-                  "password": {
-                    "type": "string",
-                    "example": "Password@123"
-                  }
-                },
-                "required": ["useremail", "password"]
-              }
-            }
-          }
+          "$ref": "#/components/requestBodies/Login"
         },
         "responses": {
           "200": {
-            "description": "User logged in successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Login successful"
-                    },
-                    "token": {
-                      "type": "string",
-                      "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Success"
           },
           "400": {
-            "description": "Bad request - missing fields",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Username/Email and password are required"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/BadRequest"
           },
           "401": {
-            "description": "Unauthorized - invalid credentials",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Invalid username/email or password"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           },
           "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Database error"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/membership-request": {
+      "post": {
+        "summary": "Submit a membership request",
+        "tags": [
+          "Users"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/MembershipRequest"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/update-user": {
+      "post": {
+        "summary": "Update an INP user by member_id",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/UserUpdate"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/user-detail": {
+      "post": {
+        "summary": "Fetch one user by member_id",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/MemberId"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/company-employees": {
+      "post": {
+        "summary": "Fetch employees for a company",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/CompanyId"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/fetch-users": {
+      "post": {
+        "summary": "Search users",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/UserSearch"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/highest-education": {
+      "post": {
+        "summary": "Fetch highest education lookup values",
+        "tags": [
+          "User Lookups"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/get-states": {
+      "post": {
+        "summary": "Fetch states by country_id",
+        "tags": [
+          "User Lookups"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/CountryId"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/work-status": {
+      "post": {
+        "summary": "Fetch work status lookup values",
+        "tags": [
+          "User Lookups"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/primary-profession": {
+      "post": {
+        "summary": "Fetch primary profession lookup values",
+        "tags": [
+          "User Lookups"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/total-work-ex": {
+      "post": {
+        "summary": "Fetch total work experience lookup values",
+        "tags": [
+          "User Lookups"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/seniority-level": {
+      "post": {
+        "summary": "Fetch seniority level lookup values",
+        "tags": [
+          "User Lookups"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/Work-Ex-Current-Company": {
+      "post": {
+        "summary": "Fetch current-company work experience lookup values",
+        "tags": [
+          "User Lookups"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/business-model": {
+      "post": {
+        "summary": "Fetch business model lookup values",
+        "tags": [
+          "User Lookups"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/company-revenue": {
+      "post": {
+        "summary": "Fetch company revenue lookup values",
+        "tags": [
+          "User Lookups"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/company-type": {
+      "post": {
+        "summary": "Fetch company type lookup values",
+        "tags": [
+          "User Lookups"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/years": {
+      "post": {
+        "summary": "Fetch years lookup values",
+        "tags": [
+          "User Lookups"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/household-income": {
+      "post": {
+        "summary": "Fetch household income lookup values",
+        "tags": [
+          "User Lookups"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/employement-status": {
+      "post": {
+        "summary": "Fetch employement status lookup values",
+        "tags": [
+          "User Lookups"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/department": {
+      "post": {
+        "summary": "Fetch department lookup values",
+        "tags": [
+          "User Lookups"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/user/function": {
+      "post": {
+        "summary": "Fetch functions by department answer id",
+        "tags": [
+          "User Lookups"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/QuestionAnswerId"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/adminuser/Adminlogin": {
+      "post": {
+        "summary": "Log in an admin user",
+        "tags": [
+          "Admin Users"
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/AdminLogin"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/adminuser/getInpUsers": {
+      "post": {
+        "summary": "Search INP users for admin",
+        "tags": [
+          "Admin Users"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/AdminUserSearch"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/adminuser/getINPUserById": {
+      "post": {
+        "summary": "Fetch an INP user by member_id for admin",
+        "tags": [
+          "Admin Users"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/MemberId"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/adminuser/addInpUser": {
+      "post": {
+        "summary": "Add an INP user",
+        "tags": [
+          "Admin Users"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/AdminAddUser"
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/Created"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/company/company-detail-byId": {
+      "post": {
+        "summary": "Fetch company details by company_id",
+        "tags": [
+          "Companies"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/CompanyId"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/company/all-companies": {
+      "post": {
+        "summary": "Search companies",
+        "tags": [
+          "Companies"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/CompanySearch"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/company/all-feedbacks": {
+      "post": {
+        "summary": "Fetch company average ratings",
+        "tags": [
+          "Companies"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/CompanyId"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/company/fetch-companyNames": {
+      "post": {
+        "summary": "Fetch all company names",
+        "tags": [
+          "Companies"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/company/globalSearch": {
+      "post": {
+        "summary": "Search companies and users globally",
+        "tags": [
+          "Companies"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/GlobalSearch"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/adminCompany/getCompanies": {
+      "post": {
+        "summary": "Search companies for admin",
+        "tags": [
+          "Admin Companies"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/AdminCompanySearch"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/adminCompany/getCompanyDetailsById": {
+      "post": {
+        "summary": "Fetch admin company details by company_id",
+        "tags": [
+          "Admin Companies"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/CompanyId"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/adminCompany/create-company": {
+      "post": {
+        "summary": "Create a company",
+        "tags": [
+          "Admin Companies"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/CreateCompany"
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/Created"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/adminCompany/get-mapped-by-domain": {
+      "post": {
+        "summary": "Fetch raw and mapped company details by domain",
+        "tags": [
+          "Admin Companies"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Domain"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/api/SignupRequest/signup-requests": {
+      "post": {
+        "summary": "Search signup requests",
+        "tags": [
+          "Signup Requests"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/SignupRequestSearch"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/SignupRequest/approve-request": {
+      "post": {
+        "summary": "Approve a signup request",
+        "tags": [
+          "Signup Requests"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/RequestId"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/SignupRequest/reject-request": {
+      "post": {
+        "summary": "Reject a signup request",
+        "tags": [
+          "Signup Requests"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/RejectRequest"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/survey/save-survey-details": {
+      "post": {
+        "summary": "Save survey details draft",
+        "tags": [
+          "Surveys"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/SurveyDetails"
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/Created"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/survey/update-survey-details/{survey_id}": {
+      "put": {
+        "summary": "Update survey details",
+        "tags": [
+          "Surveys"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SurveyId"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/SurveyDetailsUpdate"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/survey/save-survey-questions": {
+      "post": {
+        "summary": "Save survey questions, options, and tags",
+        "tags": [
+          "Surveys"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/SurveyQuestions"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/survey/preview-survey/{survey_id}": {
+      "get": {
+        "summary": "Preview a survey",
+        "tags": [
+          "Surveys"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SurveyId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/survey/publish-survey": {
+      "post": {
+        "summary": "Publish a survey",
+        "tags": [
+          "Surveys"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/SurveyAction"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/survey/close-survey": {
+      "post": {
+        "summary": "Close a survey",
+        "tags": [
+          "Surveys"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/SurveyAction"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/survey/archive-survey": {
+      "post": {
+        "summary": "Archive a survey",
+        "tags": [
+          "Surveys"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/SurveyAction"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/survey/my-surveys": {
+      "get": {
+        "summary": "Fetch surveys created by the authenticated user",
+        "tags": [
+          "Surveys"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Optional survey status filter."
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/survey/survey-for-me": {
+      "get": {
+        "summary": "Fetch surveys available for the authenticated user",
+        "tags": [
+          "Surveys"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/survey/sector-industry": {
+      "post": {
+        "summary": "Fetch sector, industry, and sub-industry hierarchy",
+        "tags": [
+          "Survey Master Data"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
           }
         }
       }
     },
     "/api/survey/countries": {
       "post": {
-        "summary": "Get all countries",
-        "tags": ["Countries"],
-        "description": "Fetches a list of all countries without requiring any parameters.",
+        "summary": "Fetch countries",
+        "tags": [
+          "Survey Master Data"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Countries fetched successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "countries fetched successfully"
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "country_name": {
-                            "type": "string",
-                            "example": "Afghanistan"
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Success"
           },
           "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Error fetching countries"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Error"
           }
         }
       }
     },
     "/api/survey/sectors": {
       "post": {
-        "summary": "Get all sectors",
-        "tags": ["Sectors"],
-        "description": "Fetches a list of all sectors without requiring any parameters.",
+        "summary": "Fetch sectors",
+        "tags": [
+          "Survey Master Data"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Sectors fetched successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "sectors fetched successfully"
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "answer": {
-                            "type": "string",
-                            "example": "Art & Design"
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Success"
           },
           "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Error fetching sectors"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Error"
           }
         }
       }
     },
     "/api/survey/industries": {
       "post": {
-        "summary": "Get all industries",
-        "tags": ["Industries"],
-        "description": "Fetches a list of all industries without requiring any parameters.",
+        "summary": "Fetch industries by sector_id",
+        "tags": [
+          "Survey Master Data"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/SectorId"
+        },
         "responses": {
           "200": {
-            "description": "Industries fetched successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "industries fetched successfully"
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "answer": {
-                            "type": "string",
-                            "example": "Arts"
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
           },
           "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Error fetching industries"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/survey/company-size": {
+      "post": {
+        "summary": "Fetch company size lookup values",
+        "tags": [
+          "Survey Master Data"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/survey/company-revenue": {
+      "post": {
+        "summary": "Fetch company revenue lookup values",
+        "tags": [
+          "Survey Master Data"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
           }
         }
       }
     },
     "/api/contact_us/": {
       "post": {
-        "summary": "contact_us API",
-        "tags": ["contact"],
-        "description": "contact_us API with name, email, phone no, contact_method and message.",
+        "summary": "Submit contact-us details",
+        "tags": [
+          "Contact"
+        ],
         "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "example": "John Doe"
-                  },
-                  "email": {
-                    "type": "string",
-                    "example": "john.doe@example.com"
-                  },
-                  "phone_no": {
-                    "type": "string",
-                    "example": "+911234567890"
-                  },
-                  "contact_method": {
-                    "type": "string",
-                    "example": "Email"
-                  },
-                  "message": {
-                    "type": "string",
-                    "example": "I am interested in your services."
-                  }
-                },
-                "required": ["name", "email", "phone_no","contact_method","message"]
-              }
-            }
-          }
+          "$ref": "#/components/requestBodies/ContactUs"
         },
         "responses": {
           "201": {
-            "description": "contact details have been saved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Thank you for reaching out to us! Your message has been successfully submitted. We will get back to you soon."
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Created"
           },
           "400": {
-            "description": "Bad request - missing fields",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "All fields are required"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/BadRequest"
           },
           "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Database error"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Error"
           }
         }
       }
     },
     "/api/autoSuggest/": {
       "post": {
-        "summary": "auto-suggest API",
-        "tags": ["Autosuggest"],
-        "description": "Autosuggest company_name , ceo, legal_name for search bar.",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "search": {
-                    "type": "string",
-                    "example": "tri"
-                  }
-                },
-                "required": ["search"]
-              }
-            }
+        "summary": "Fetch autosuggest results",
+        "tags": [
+          "Autosuggest"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
           }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Search"
         },
         "responses": {
           "200": {
-            "description": "AutoSuggest details fetched successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "AutoSuggest details fetched successfully"
-                    },
-                    "companyDetails": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "company_name": {
-                            "type": "string",
-                            "example": "Trinity Academy of Engineering"
-                          }
-                        }
-                      }
-                    },
-                    "userDetails": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                "last_name": { "type": "string", "example": "Tripathi" },
-                "enter_city": { "type": "string", "example": "Thiruvananthapuram" }
-                        },
-                        "additionalProperties": false
-                      }
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Success"
           },
           "400": {
-            "description": "Bad request - missing fields",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Search field is required"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/BadRequest"
           },
           "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Database error"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Error"
           }
         }
       }
     },
-
-    "/api/user/update": {
+    "/api/refer/": {
       "post": {
-        "summary": "Update user_demographic_details user table",
-        "tags": ["update"],
-        "description": "update the entire user_details in the user_demographic_details user table like first_name, last_name, email, gender, dob,etc. based on member_id",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "member_id": {
-                    "type": "integer",
-                    "example": 2025103
-                  },
-                  "username": {
-                      "type": "string",
-                      "example": "john_doe"
-                    },
-                    "password": {
-                      "type": "string",
-                      "example": "StrongP@ssw0rd!"
-                    },
-                    "work_email": {
-                      "type": "string",
-                      "example": "john.doe@company.com"
-                    },
-                    "mobile": {
-                      "type": "string",
-                      "example": "+1234567890"
-                    },
-                    "first_name": {
-                      "type": "string",
-                      "example": "John"
-                    },
-                    "middle_name": {
-                      "type": "string",
-                      "example": "Michael"
-                    },
-                    "last_name": {
-                      "type": "string",
-                      "example": "Doe"
-                    },
-                    "profile_photo": {
-                      "type": "string",
-                      "example": "https://example.com/profile/john.jpg"
-                    },
-                    "gender": {
-                      "type": "string",
-                      "example": "Male"
-                    },
-                    "dob": {
-                      "type": "string",
-                      "example": "1990-01-01"
-                    },
-                    "year_of_birth": {
-                      "type": "string",
-                      "example": "1990"
-                    },
-                    "age_entered": {
-                      "type": "string",
-                      "example": "34"
-                    },
-                    "age_calculated": {
-                      "type": "string",
-                      "example": "34"
-                    },
-                    "country": {
-                      "type": "string",
-                      "example": "United States"
-                    },
-                    "state": {
-                      "type": "string",
-                      "example": "California"
-                    },
-                    "enter_city": {
-                      "type": "string",
-                      "example": "Los Angeles"
-                    },
-                    "twitter": {
-                      "type": "string",
-                      "example": "https://twitter.com/johndoe"
-                    },
-                    "instagram": {
-                      "type": "string",
-                      "example": "https://instagram.com/johndoe"
-                    },
-                    "facebook": {
-                      "type": "string",
-                      "example": "https://facebook.com/johndoe"
-                    },
-                    "linkedin": {
-                      "type": "string",
-                      "example": "https://linkedin.com/in/johndoe"
-                    },
-                    "household_income": {
-                      "type": "string",
-                      "example": "$75,000 - $100,000"
-                    },
-                    "work_status": {
-                      "type": "string",
-                      "example": "Employed Full-Time"
-                    },
-                    "employement_status": {
-                      "type": "string",
-                      "example": "Permanent"
-                    },
-                    "profession_type": {
-                      "type": "string",
-                      "example": "Software Developer"
-                    },
-                    "work_experience": {
-                      "type": "string",
-                      "example": "5 years"
-                    },
-                    "work_experience_current_company": {
-                      "type": "string",
-                      "example": "2 years"
-                    },
-                    "seniority_level": {
-                      "type": "string",
-                      "example": "Mid-Level"
-                    },
-                    "job_responsibilities": {
-                      "type": "string",
-                      "example": "Developing backend APIs and managing databases"
-                    },
-                    "company_type": {
-                      "type": "string",
-                      "example": "Private"
-                    },
-                    "business_model": {
-                      "type": "string",
-                      "example": "B2B SaaS"
-                    },
-                    "employee_size": {
-                      "type": "string",
-                      "example": "201-500"
-                    },
-                    "company_revenue": {
-                      "type": "string",
-                      "example": "$10M - $50M"
-                    },
-                    "headquarter": {
-                      "type": "string",
-                      "example": "San Francisco, CA"
-                    },
-                    "about_product_and_services": {
-                      "type": "string",
-                      "example": "Cloud-based CRM and sales automation platform"
-                    },
-                    "highest_education": {
-                      "type": "string",
-                      "example": "Master's Degree"
-                    },
-                    "zip_code": {
-                      "type": "string",
-                      "example": "90001"
-                    },
-                    "mailing_address": {
-                      "type": "string",
-                      "example": "123 Main St, Los Angeles, CA"
-                    },
-                    "about_user": {
-                      "type": "string",
-                      "example": "Passionate software engineer with 5 years of experience."
-                    },
-                    "company_id": {
-                      "type": "integer",
-                      "example": 145
-                    },
-                    "company_name": {
-                      "type": "string",
-                      "example": "Tech Solutions Inc."
-                    },
-                    "company_url": {
-                      "type": "string",
-                      "example": "https://www.techsolutions.com"
-                    },
-                    "job_title": {
-                      "type": "string",
-                      "example": "Backend Engineer"
-                    },
-                    "department": {
-                      "type": "string",
-                      "example": "Engineering"
-                    },
-                    "user_id": {
-                      "type": "integer",
-                      "example": 12345
-                    },
-                    "sector_and_industry": {
-                      "type": "string",
-                      "example": "Information Technology - Software"
-                    }                  
-                },
-                "required": ["member_id"]
-              }
-            }
+        "summary": "Refer a user by email",
+        "tags": [
+          "Referrals"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
           }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Referral"
         },
         "responses": {
           "200": {
-            "description": "updated user_demographic_details table successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "updated user_demographic_details table successfully"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Success"
           },
           "400": {
-            "description": "Bad request - missing fields",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "member_id is required"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/BadRequest"
           },
           "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Database error"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Error"
           }
         }
       }
     },
-
-    "/api/user/fetchUserData": {
+    "/api/company_name": {
       "post": {
-        "summary": "fetch complete data from user_demographic_details table",
-        "tags": ["fetch"],
-        "description": "fetch all users data from user_demographic_table",
+        "summary": "Fetch company-name suggestion data",
+        "tags": [
+          "Data Suggestions"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "responses": {
           "200": {
-            "description": "data is successfully fetched from user_demographic_details table",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "data is successfully fetched from user_demographic_details table"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Success"
           },
-          "400": {
-            "description": "Bad request - missing fields",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "server could not understand the client's request due to a problem with the request itself"
-                    }
-                  }
-                }
-              }
-            }
+          "204": {
+            "description": "No data found"
           },
           "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Database error"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Error"
           }
         }
       }
     },
-
-    "/api/company/companyEmployee": {
+    "/api/employee": {
       "post": {
-        "summary": "fetch data from user_demographic_details table based on company_id",
-        "tags": ["fetch"],
-        "description": "fetch  complete user data from user_demographic_details table based on company_id",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "company_id": {
-                    "type": "integer",
-                    "example": 2025103
-                  }              
-                },
-                "required": ["company_id"]
-              }
-            }
+        "summary": "Fetch employee-size suggestion data",
+        "tags": [
+          "Data Suggestions"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
           }
-        },
+        ],
         "responses": {
           "200": {
-            "description": "fetched data from user_demographic_details table successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "fetched data from user_demographic_details table successfully"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Success"
           },
-          "400": {
-            "description": "Bad request - missing fields",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "company_id is required to fetch the data"
-                    }
-                  }
-                }
-              }
-            }
+          "204": {
+            "description": "No data found"
           },
           "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Database error"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Error"
           }
         }
       }
     },
-
+    "/api/revenue": {
+      "post": {
+        "summary": "Fetch revenue suggestion data",
+        "tags": [
+          "Data Suggestions"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "204": {
+            "description": "No data found"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/sectorIndustries": {
+      "post": {
+        "summary": "Fetch sector and industry suggestion data",
+        "tags": [
+          "Data Suggestions"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "204": {
+            "description": "No data found"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/workStatus": {
+      "post": {
+        "summary": "Fetch work-status suggestion data",
+        "tags": [
+          "Data Suggestions"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/employementStatus": {
+      "post": {
+        "summary": "Fetch employement-status suggestion data",
+        "tags": [
+          "Data Suggestions"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/questionAnswers": {
+      "post": {
+        "summary": "Fetch question answers",
+        "tags": [
+          "Data Suggestions"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/api/saveFeedback": {
       "post": {
-        "summary": "save the employee feedback data in the inp_employee_feedback table",
-        "tags": ["User Feedback"],
-        "description": "save the employee feedback data in the inp_employee_feedback table",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "member_id": {
-                    "type": "integer",
-                    "example": 2025103
-                  },
-                  "company_id": {
-                    "type": "integer",
-                    "example": 178
-                  },
-                  "employee_satisfaction_rating": {
-                    "type": "float",
-                    "example": 2.4
-                  },
-                  "company_culture_rating": {
-                    "type": "float",
-                    "example": 1.5
-                  },
-                  "easy_of_working_rating": {
-                    "type": "float",
-                    "example": 2.6
-                  },
-                  "work_life_balance_rating": {
-                    "type": "float",
-                    "example": 3.2
-                  },
-                  "top_management_rating": {
-                    "type": "float",
-                    "example": 2.3
-                  }, 
-                  "hr_attitute_rating": {
-                    "type": "float",
-                    "example": 3.5
-                  },
-                  "ceo_rating": {
-                    "type": "float",
-                    "example": 5
-                  }
-                },
-                "required": ["member_id","company_id","employee_satisfaction_rating","company_culture_rating",
-                "easy_of_working_rating","work_life_balance_rating","top_management_rating","hr_attitute_rating","ceo_rating"]
-              }
-            }
+        "summary": "Save employee feedback",
+        "tags": [
+          "Employee Feedback"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
           }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/EmployeeFeedback"
         },
         "responses": {
-          "200": {
-            "description": "employee Feedback data is saved successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Feedback data is saved successfully"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request - missing fields",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "All fields are required"
-                    }
-                  }
-                }
-              }
-            }
+          "201": {
+            "$ref": "#/components/responses/Created"
           },
           "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Database error"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Error"
           }
         }
       }
     },
-
     "/api/employeeFeedbackData": {
       "post": {
-        "summary": "fetch employee feedback data based on company_id",
-        "tags": ["User Feedback"],
-        "description": "fetch employee feedback data based on company_id",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "company_id": {
-                    "type": "integer",
-                    "example": 178
-                  }
-                },
-                "required": ["company_id"]
-              }
-            }
+        "summary": "Fetch employee feedback by company_id",
+        "tags": [
+          "Employee Feedback"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
           }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/CompanyId"
         },
         "responses": {
           "200": {
-            "description": "employee Feedback data is fetched successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Feedback data is fetched successfully"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Success"
           },
           "400": {
-            "description": "Bad request - missing fields",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "company_id is required"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/BadRequest"
           },
           "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "Database error"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/Error"
           }
         }
       }
     },
-
-    "/api/company/data": {
-        "post": {
-          "summary": "company details and user details api",
-          "tags": ["Company and user data search API"],
-          "description": "Returns a list of company and user data based on optional filters and pagination.",
-          "parameters": [
-            {
-              "name": "page",
-              "in": "query",
-              "description": "Page number for paginated results (optional)",
-              "required": false,
-              "schema": {
-                "type": "integer",
-                "default": 1,
-                "minimum": 1
-              }
-            }
-          ],
-          "requestBody": {
-            "required": false,
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "search": { "type": "string", "example": "developer" },
-                    "job_title": { "type": "string", "example": "Software Engineer" },
-                    "location": { "type": "string", "example": "New York" },
-                    "company_name": { "type": "string", "example": "Google" },
-                    "industry": { "type": "string", "example": "Technology" },
-                    "employees": { "type": "string", "example": "100-500" },
-                    "revenue": { "type": "string", "example": "$1M-$10M" }
-                  }
-                }
-              }
-            }
+    "/api/fetch-employees": {
+      "post": {
+        "summary": "Fetch feedback employees by company_id",
+        "tags": [
+          "Employee Feedback"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/CompanyId"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
           },
-          "responses": {
-            "200": {
-              "description": "Filtered company and data fetched successfully",
-              "content": {
-                "application/json": {
-                  "schema": {
-                    "type": "object",
-                    "properties": {
-                      "message": {
-                        "type": "string",
-                        "example": "company details fetched succesfully"
-                      },
-                      "data": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "properties": {
-                            "company_id": {
-                              "type": "integer",
-                              "example": 12
-                            },
-                            "company_name": {
-                              "type": "string",
-                              "example": "TCS"
-                            },
-                            "legal_name": {
-                              "type": ["string"],
-                              "example": "sourav"
-                            },
-                            "ceo": {
-                              "type": "string",
-                              "example": "K. Krithivasan"
-                            },
-                            "company_url": {
-                              "type": "string",
-                              "example": "tcs.com"
-                            },
-                            "answers": {
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "properties": {
-                                  "company_id": {
-                                    "type": "integer",
-                                    "example": 12
-                                  },
-                                  "question_id": {
-                                    "type": "integer",
-                                    "example": 39
-                                  },
-                                  "answer": {
-                                    "type": "string",
-                                    "example": "46,76,83,111,235,236"
-                                  }
-                                }
-                              }
-                            }
-                          }
-                        }
-                      },
-                      "userDetails": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": {
-                            "type": "integer",
-                            "example": 1
-                          },
-                          "username": {
-                            "type": ["string", "null"],
-                            "example": null
-                          },
-                          "member_id": {
-                            "type": "integer",
-                            "example": 202510001
-                          },
-                          "personal_email": {
-                            "type": "string",
-                            "example": "aman@gmail.com"
-                          },
-                          "work_email": {
-                            "type": "string",
-                            "example": ""
-                          },
-                          "mobile": {
-                            "type": "string",
-                            "example": ""
-                          },
-                          "first_name": {
-                            "type": "string",
-                            "example": "aman"
-                          },
-                          "middle_name": {
-                            "type": "string",
-                            "example": ""
-                          },
-                          "last_name": {
-                            "type": "string",
-                            "example": ""
-                          },
-                          "country": {
-                            "type": "string",
-                            "example": ""
-                          },
-                          "state": {
-                            "type": "string",
-                            "example": ""
-                          },
-                          "enter_city": {
-                            "type": "string",
-                            "example": ""
-                          },
-                          "facebook": {
-                            "type": "string",
-                            "example": ""
-                          },
-                          "linkedin": {
-                            "type": "string",
-                            "example": ""
-                          },
-                          "twitter": {
-                            "type": "string",
-                            "example": ""
-                          },
-                          "instagram": {
-                            "type": "string",
-                            "example": ""
-                          },
-                          "company_id": {
-                            "type": ["integer", "null"],
-                            "example": null
-                          },
-                          "company_name": {
-                            "type": "string",
-                            "example": ""
-                          },
-                          "company_url": {
-                            "type": ["string", "null"],
-                            "example": null
-                          },
-                          "job_title": {
-                            "type": ["string", "null"],
-                            "example": null
-                          },
-                          "department": {
-                            "type": ["string", "null"],
-                            "example": null
-                          },
-                          "user_id": {
-                            "type": ["string", "null"],
-                            "example": null
-                          },
-                          "sector_and_industry": {
-                            "type": ["string", "null"],
-                            "example": null
-                          }
-                        }
-                      }
-                    },
-                      "currentPage": {
-                        "type": "integer",
-                        "example": 1
-                      }
-                    }
-                  }
-                }
-              }
-            },
-            "400": {
-              "description": "Invalid request",
-              "content": {
-                "application/json": {
-                  "schema": {
-                    "type": "object",
-                    "properties": {
-                      "message": {
-                        "type": "string",
-                        "example": "Invalid filter parameters"
-                      }
-                    }
-                  }
-                }
-              }
-            },
-            "500": {
-              "description": "Internal server error",
-              "content": {
-                "application/json": {
-                  "schema": {
-                    "type": "object",
-                    "properties": {
-                      "message": {
-                        "type": "string",
-                        "example": "Something went wrong"
-                      }
-                    }
-                  }
-                }
-              }
-            }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
           }
         }
       }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
     },
-  
-  
-    "components": {
-      "schemas": {
-        "User": {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string",
-              "description": "User's full name"
-            },
-            "email": {
-              "type": "string",
-              "description": "User's email address"
-            },
-            "password": {
-              "type": "string",
-              "description": "User's password"
+    "parameters": {
+      "SurveyId": {
+        "name": "survey_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "integer"
+        }
+      }
+    },
+    "responses": {
+      "Success": {
+        "description": "Request completed successfully",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiResponse"
             }
           }
         }
       },
-      "securitySchemes": {
-        "BearerAuth": {
-          "type": "http",
-          "scheme": "bearer",
-          "bearerFormat": "JWT"
+      "Created": {
+        "description": "Resource created successfully",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiResponse"
+            }
+          }
+        }
+      },
+      "BadRequest": {
+        "description": "Invalid or missing request data",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Authentication failed or token is missing",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Requested resource was not found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Request conflicts with existing data",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "Error": {
+        "description": "Server error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
         }
       }
     },
-    "security": [
-      {
-        "BearerAuth": []
+    "requestBodies": {
+      "AdminAddUser": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AdminAddUser"
+            }
+          }
+        }
+      },
+      "AdminCompanySearch": {
+        "required": false,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AdminCompanySearch"
+            }
+          }
+        }
+      },
+      "AdminLogin": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AdminLogin"
+            }
+          }
+        }
+      },
+      "AdminUserSearch": {
+        "required": false,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AdminUserSearch"
+            }
+          }
+        }
+      },
+      "CompanyId": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/CompanyId"
+            }
+          }
+        }
+      },
+      "CompanySearch": {
+        "required": false,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/CompanySearch"
+            }
+          }
+        }
+      },
+      "ContactUs": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ContactUs"
+            }
+          }
+        }
+      },
+      "CountryId": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/CountryId"
+            }
+          }
+        }
+      },
+      "CreateCompany": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/CreateCompany"
+            }
+          }
+        }
+      },
+      "Domain": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Domain"
+            }
+          }
+        }
+      },
+      "EmployeeFeedback": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/EmployeeFeedback"
+            }
+          }
+        }
+      },
+      "GenericObject": {
+        "required": false,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/GenericObject"
+            }
+          }
+        }
+      },
+      "GlobalSearch": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/GlobalSearch"
+            }
+          }
+        }
+      },
+      "Login": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Login"
+            }
+          }
+        }
+      },
+      "MemberId": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/MemberId"
+            }
+          }
+        }
+      },
+      "MembershipRequest": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/MembershipRequest"
+            }
+          }
+        }
+      },
+      "QuestionAnswerId": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/QuestionAnswerId"
+            }
+          }
+        }
+      },
+      "SectorId": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SectorId"
+            }
+          }
+        }
+      },
+      "Referral": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Referral"
+            }
+          }
+        }
+      },
+      "RejectRequest": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RejectRequest"
+            }
+          }
+        }
+      },
+      "RequestId": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RequestId"
+            }
+          }
+        }
+      },
+      "Search": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Search"
+            }
+          }
+        }
+      },
+      "SignupRequestSearch": {
+        "required": false,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SignupRequestSearch"
+            }
+          }
+        }
+      },
+      "SurveyAction": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SurveyAction"
+            }
+          }
+        }
+      },
+      "SurveyDetails": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SurveyDetails"
+            }
+          }
+        }
+      },
+      "SurveyDetailsUpdate": {
+        "required": false,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SurveyDetails"
+            }
+          }
+        }
+      },
+      "SurveyQuestions": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SurveyQuestions"
+            }
+          }
+        }
+      },
+      "UserSearch": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/UserSearch"
+            }
+          }
+        }
+      },
+      "UserSignup": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/UserSignup"
+            }
+          }
+        }
+      },
+      "UserUpdate": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/UserUpdate"
+            }
+          }
+        }
       }
-    ]
+    },
+    "schemas": {
+      "AdminAddUser": {
+        "type": "object",
+        "required": [
+          "first_name",
+          "work_email"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "first_name": {
+            "type": "string",
+            "example": "John"
+          },
+          "work_email": {
+            "type": "string",
+            "format": "email",
+            "example": "john@example.com"
+          }
+        }
+      },
+      "AdminCompanySearch": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "example": 1
+          },
+          "limit": {
+            "type": "integer",
+            "example": 15
+          },
+          "company_name": {
+            "type": "string"
+          },
+          "company_url": {
+            "type": "string"
+          },
+          "ceo": {
+            "type": "string"
+          },
+          "headquarter": {
+            "type": "string"
+          },
+          "company_size": {
+            "type": "string"
+          },
+          "company_revenue": {
+            "type": "string"
+          },
+          "industry": {
+            "type": "string"
+          },
+          "company_status": {
+            "type": "string",
+            "example": "verified"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "AdminLogin": {
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "username": {
+            "type": "string",
+            "example": "admin"
+          },
+          "password": {
+            "type": "string",
+            "example": "Password@123"
+          }
+        }
+      },
+      "AdminUserSearch": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "example": 1
+          },
+          "limit": {
+            "type": "integer",
+            "example": 15
+          },
+          "member_id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "current_company": {
+            "type": "string"
+          },
+          "job_title": {
+            "type": "string"
+          },
+          "employee_size": {
+            "type": "string"
+          },
+          "company_revenue": {
+            "type": "string"
+          },
+          "seniority_level": {
+            "type": "string"
+          },
+          "profession_type": {
+            "type": "string"
+          },
+          "sector": {
+            "type": "string"
+          },
+          "industry": {
+            "type": "string"
+          }
+        }
+      },
+      "ApiResponse": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          },
+          "data": {}
+        }
+      },
+      "CompanyId": {
+        "type": "object",
+        "required": [
+          "company_id"
+        ],
+        "properties": {
+          "company_id": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "example": 178
+          }
+        }
+      },
+      "CompanySearch": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "example": 1
+          },
+          "limit": {
+            "type": "integer",
+            "example": 15
+          },
+          "company_name": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "company_size": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "company_revenue": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "industry": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "country": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "global_search": {
+            "type": "string"
+          }
+        }
+      },
+      "ContactUs": {
+        "type": "object",
+        "required": [
+          "name",
+          "email",
+          "phone_no",
+          "contact_method",
+          "message"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "John Doe"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "john.doe@example.com"
+          },
+          "phone_no": {
+            "type": "string",
+            "example": "+911234567890"
+          },
+          "contact_method": {
+            "type": "string",
+            "example": "Email"
+          },
+          "message": {
+            "type": "string",
+            "example": "I am interested in your services."
+          }
+        }
+      },
+      "CountryId": {
+        "type": "object",
+        "required": [
+          "country_id"
+        ],
+        "properties": {
+          "country_id": {
+            "type": "integer",
+            "example": 101
+          }
+        }
+      },
+      "SectorId": {
+        "type": "object",
+        "required": [
+          "sector_id"
+        ],
+        "properties": {
+          "sector_id": {
+            "type": "integer",
+            "example": 68
+          }
+        }
+      },
+      "CreateCompany": {
+        "type": "object",
+        "required": [
+          "company_name",
+          "legal_name",
+          "company_url",
+          "ceo",
+          "answers"
+        ],
+        "properties": {
+          "company_name": {
+            "type": "string"
+          },
+          "legal_name": {
+            "type": "string"
+          },
+          "company_url": {
+            "type": "string"
+          },
+          "ceo": {
+            "type": "string"
+          },
+          "company_status": {
+            "type": "integer",
+            "example": 1
+          },
+          "answers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "question_id",
+                "answer"
+              ],
+              "properties": {
+                "question_id": {
+                  "type": "integer"
+                },
+                "answer": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Domain": {
+        "type": "object",
+        "required": [
+          "domain"
+        ],
+        "properties": {
+          "domain": {
+            "type": "string",
+            "example": "example.com"
+          }
+        }
+      },
+      "EmployeeFeedback": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "member_id",
+          "company_id"
+        ],
+        "properties": {
+          "member_id": {
+            "type": "integer",
+            "example": 2025103
+          },
+          "company_id": {
+            "type": "integer",
+            "example": 178
+          },
+          "employee_satisfaction_rating": {
+            "type": "number",
+            "example": 2.4
+          },
+          "company_culture_rating": {
+            "type": "number",
+            "example": 1.5
+          },
+          "easy_of_working_rating": {
+            "type": "number",
+            "example": 2.6
+          },
+          "work_life_balance_rating": {
+            "type": "number",
+            "example": 3.2
+          },
+          "top_management_rating": {
+            "type": "number",
+            "example": 2.3
+          },
+          "hr_attitute_rating": {
+            "type": "number",
+            "example": 3.5
+          },
+          "ceo_rating": {
+            "type": "number",
+            "example": 5
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "error": {}
+        }
+      },
+      "GenericObject": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "GlobalSearch": {
+        "type": "object",
+        "required": [
+          "searchTerm"
+        ],
+        "properties": {
+          "searchTerm": {
+            "type": "string",
+            "example": "developer"
+          },
+          "page": {
+            "type": "integer",
+            "example": 1
+          },
+          "limit": {
+            "type": "integer",
+            "example": 15
+          }
+        }
+      },
+      "Login": {
+        "type": "object",
+        "required": [
+          "useremail",
+          "password"
+        ],
+        "properties": {
+          "useremail": {
+            "type": "string",
+            "example": "john.doe@example.com"
+          },
+          "password": {
+            "type": "string",
+            "example": "Password@123"
+          }
+        }
+      },
+      "MemberId": {
+        "type": "object",
+        "required": [
+          "member_id"
+        ],
+        "properties": {
+          "member_id": {
+            "type": "integer",
+            "example": 202510001
+          }
+        }
+      },
+      "MembershipRequest": {
+        "type": "object",
+        "required": [
+          "full_name",
+          "email",
+          "company_name",
+          "industry",
+          "country"
+        ],
+        "properties": {
+          "full_name": {
+            "type": "string",
+            "example": "John Doe"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "john.doe@example.com"
+          },
+          "company_name": {
+            "type": "string",
+            "example": "Acme Inc"
+          },
+          "industry": {
+            "type": "string",
+            "example": "Technology"
+          },
+          "country": {
+            "type": "string",
+            "example": "India"
+          }
+        }
+      },
+      "QuestionAnswerId": {
+        "type": "object",
+        "required": [
+          "question_answer_id"
+        ],
+        "properties": {
+          "question_answer_id": {
+            "type": "integer",
+            "example": 1
+          }
+        }
+      },
+      "Referral": {
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "friend@example.com"
+          }
+        }
+      },
+      "RejectRequest": {
+        "type": "object",
+        "required": [
+          "id",
+          "rejection_reason"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 1
+          },
+          "rejection_reason": {
+            "type": "string",
+            "example": "Incomplete profile details"
+          }
+        }
+      },
+      "RequestId": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 1
+          }
+        }
+      },
+      "Search": {
+        "type": "object",
+        "required": [
+          "search"
+        ],
+        "properties": {
+          "search": {
+            "type": "string",
+            "example": "tri"
+          }
+        }
+      },
+      "SignupRequestSearch": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "example": 1
+          },
+          "limit": {
+            "type": "integer",
+            "example": 15
+          },
+          "full_name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "description": "0, 1, or 2"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "SurveyAction": {
+        "type": "object",
+        "required": [
+          "survey_id"
+        ],
+        "properties": {
+          "survey_id": {
+            "type": "integer",
+            "example": 1
+          }
+        }
+      },
+      "SurveyDetails": {
+        "type": "object",
+        "required": [
+          "survey_title"
+        ],
+        "properties": {
+          "survey_title": {
+            "type": "string",
+            "example": "Customer satisfaction survey"
+          },
+          "survey_description": {
+            "type": "string"
+          },
+          "survey_image": {
+            "type": "string"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "min_age": {
+            "type": "integer"
+          },
+          "max_age": {
+            "type": "integer"
+          },
+          "gender": {
+            "type": "string"
+          },
+          "target_responses": {
+            "type": "integer"
+          },
+          "reward_per_participant": {
+            "type": "number"
+          },
+          "sector": {
+            "type": "string"
+          },
+          "industry": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "SurveyQuestions": {
+        "type": "object",
+        "required": [
+          "survey_id",
+          "questions"
+        ],
+        "properties": {
+          "survey_id": {
+            "type": "integer",
+            "example": 1
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "question_text",
+                "question_type"
+              ],
+              "properties": {
+                "question_text": {
+                  "type": "string",
+                  "example": "How satisfied are you?"
+                },
+                "question_type": {
+                  "type": "string",
+                  "enum": [
+                    "single_select",
+                    "multi_select",
+                    "open_end",
+                    "dropdown",
+                    "rating",
+                    "yes_no",
+                    "nps"
+                  ]
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "UserSearch": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "example": 1
+          },
+          "limit": {
+            "type": "integer",
+            "example": 15
+          },
+          "member_id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "Job_title": {
+            "type": "string"
+          },
+          "sector": {
+            "type": "string"
+          },
+          "industry": {
+            "type": "string"
+          },
+          "global_search": {
+            "type": "string"
+          }
+        }
+      },
+      "UserSignup": {
+        "type": "object",
+        "required": [
+          "name",
+          "email",
+          "password",
+          "company_name",
+          "sector",
+          "industry"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "John Doe"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "john.doe@example.com"
+          },
+          "password": {
+            "type": "string",
+            "example": "Password@123"
+          },
+          "company_name": {
+            "type": "string",
+            "example": "Acme Inc"
+          },
+          "sector": {
+            "type": "string",
+            "example": "Technology"
+          },
+          "industry": {
+            "type": "string",
+            "example": "Software"
+          }
+        }
+      },
+      "UserUpdate": {
+        "type": "object",
+        "required": [
+          "member_id"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "member_id": {
+            "type": "integer",
+            "example": 202510001
+          },
+          "name": {
+            "type": "string"
+          },
+          "personal_email": {
+            "type": "string",
+            "format": "email"
+          },
+          "work_email": {
+            "type": "string",
+            "format": "email"
+          },
+          "mobile": {
+            "type": "string"
+          },
+          "dob": {
+            "type": "string",
+            "format": "date"
+          },
+          "gender": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "enter_city": {
+            "type": "string"
+          },
+          "current_company": {
+            "type": "string"
+          },
+          "job_title": {
+            "type": "string"
+          },
+          "sector": {
+            "type": "string"
+          },
+          "industry": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
 }
