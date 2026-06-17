@@ -25,7 +25,8 @@ const signup = async (req, res) => {
             email,
             password,
             company_name,
-            sector_industry
+            sector,
+            industry
         } = req.body;
 
         if (
@@ -33,7 +34,8 @@ const signup = async (req, res) => {
             !email ||
             !password ||
             !company_name ||
-            !sector_industry
+            !sector ||
+            !industry 
         ) {
 
             return res.status(400).json({
@@ -55,7 +57,8 @@ const signup = async (req, res) => {
             email,
             password,
             company_name,
-            sector_industry
+            sector,
+            industry
         );
 
         const token = jwt.sign(
