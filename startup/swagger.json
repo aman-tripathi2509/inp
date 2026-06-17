@@ -1354,6 +1354,54 @@
         }
       }
     },
+    "/api/survey/sectors": {
+      "post": {
+        "summary": "Fetch sectors",
+        "tags": [
+          "Survey Master Data"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/survey/industries": {
+      "post": {
+        "summary": "Fetch industries by sector_id",
+        "tags": [
+          "Survey Master Data"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/SectorId"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/api/survey/company-size": {
       "post": {
         "summary": "Fetch company size lookup values",
@@ -1977,6 +2025,16 @@
           }
         }
       },
+      "SectorId": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SectorId"
+            }
+          }
+        }
+      },
       "Referral": {
         "required": true,
         "content": {
@@ -2382,6 +2440,18 @@
           "country_id": {
             "type": "integer",
             "example": 101
+          }
+        }
+      },
+      "SectorId": {
+        "type": "object",
+        "required": [
+          "sector_id"
+        ],
+        "properties": {
+          "sector_id": {
+            "type": "integer",
+            "example": 68
           }
         }
       },
@@ -2841,7 +2911,8 @@
           "email",
           "password",
           "company_name",
-          "sector_industry"
+          "sector",
+          "industry"
         ],
         "properties": {
           "name": {
@@ -2861,9 +2932,13 @@
             "type": "string",
             "example": "Acme Inc"
           },
-          "sector_industry": {
+          "sector": {
             "type": "string",
             "example": "Technology"
+          },
+          "industry": {
+            "type": "string",
+            "example": "Software"
           }
         }
       },

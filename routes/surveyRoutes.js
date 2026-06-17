@@ -15,7 +15,8 @@ const {
     get_CompanySize,
     get_CompanyRevenue,
     getSectorIndustryHierarchy,
-    getSectors
+    getSectors,
+    getIndustries
 } = require("../controllers/surveyController");
 
 const {
@@ -117,6 +118,7 @@ router.post(
     getSectors
 );
 
+
 // Company Size
 router.post(
     "/company-size",
@@ -129,6 +131,13 @@ router.post(
     "/company-revenue",
     authMiddleware,
     get_CompanyRevenue
+);
+
+// Industries
+router.post(
+    "/industries",
+    authMiddleware,
+    getIndustries
 );
 
 module.exports = router;
