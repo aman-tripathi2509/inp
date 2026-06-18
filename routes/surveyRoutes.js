@@ -11,6 +11,7 @@ const {
     archiveSurvey,
     getMySurveys,
     getAvailableSurveys,
+    getSurveyForMeDetails,
     get_Countries,
     get_CompanySize,
     get_CompanyRevenue,
@@ -88,6 +89,13 @@ router.get(
     "/survey-for-me",
     authMiddleware,
     getAvailableSurveys
+);
+
+// My Survey detals
+router.post(
+    "/survey-for-me-details",
+    authMiddleware,
+    getSurveyForMeDetails
 );
 
 /*

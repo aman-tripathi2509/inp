@@ -512,6 +512,54 @@ const getAvailableSurveys = async (req, res) => {
     }
 };
 
+const getSurveyForMeDetails = async (req, res) => {
+
+    try {
+
+        const { survey_id } = req.body;
+        const parsedSurveyId = Number(survey_id);
+
+        if (
+            !Number.isInteger(parsedSurveyId) ||
+            parsedSurveyId <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid survey_id is required"
+            });
+        }
+
+        const result =
+            await Survey.getSurveyForMeDetails(
+                parsedSurveyId
+            );
+
+        if (!result.surveyExists) {
+            return res.status(404).json({
+                success: false,
+                message: "Survey not found"
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            count: result.questions.length,
+            data: result.questions
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+
+
 /**
  * Get Sectors
  */
@@ -577,5 +625,6 @@ module.exports = {saveSurveyDetails,
     archiveSurvey,
     getMySurveys,
     getAvailableSurveys,
+    getSurveyForMeDetails,
     getSectors,
      getSectorIndustryHierarchy, get_Countries, get_CompanySize, get_CompanyRevenue, getIndustries};
