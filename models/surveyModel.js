@@ -527,6 +527,85 @@ const getAvailableSurveys = async (member_id) => {
     }
 };
 
+const getSurveyForMeDetails = async (survey_id) => {
+
+    const [[survey]] = await db.query(
+        `
+        SELECT id
+        FROM inp_survey
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [survey_id]
+    );
+
+    if (!survey) {
+        return {
+            surveyExists: false,
+            questions: []
+        };
+    }
+
+    const [rows] = await db.query(
+        `
+        SELECT
+            q.id AS question_id,
+            q.question_text,
+            q.question_type,
+            q.question_image,
+            q.is_required,
+            q.question_order,
+            o.id AS option_id,
+            o.option_text,
+            o.option_image,
+            o.option_order
+        FROM inp_survey_question q
+        LEFT JOIN inp_survey_question_option o
+            ON o.question_id = q.id
+        WHERE q.survey_id = ?
+        ORDER BY
+            q.question_order ASC,
+            o.option_order ASC
+        `,
+        [survey_id]
+    );
+
+    const questionMap = new Map();
+
+    for (const row of rows) {
+
+        if (!questionMap.has(row.question_id)) {
+            questionMap.set(row.question_id, {
+                question_id: row.question_id,
+                question_text: row.question_text,
+                question_type: row.question_type,
+                question_image: row.question_image,
+                is_required: Boolean(row.is_required),
+                question_order: row.question_order,
+                options: []
+            });
+        }
+
+        if (row.option_id !== null) {
+            questionMap
+                .get(row.question_id)
+                .options.push({
+                    option_id: row.option_id,
+                    option_text: row.option_text,
+                    option_image: row.option_image,
+                    option_order: row.option_order
+                });
+        }
+    }
+
+    return {
+        surveyExists: true,
+        questions: Array.from(
+            questionMap.values()
+        )
+    };
+};
+
 
 /**
  * Fetch top-level Sectors (question_id = 68)
@@ -636,4 +715,5 @@ module.exports = {createSurveyDetails,
     archiveSurvey,
     getMySurveys,
     getAvailableSurveys,
+    getSurveyForMeDetails,
      getSectors, getIndustries,getSubIndustries, getCountries, getCompanySize, getCompanyRevenue};

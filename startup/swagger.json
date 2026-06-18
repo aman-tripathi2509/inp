@@ -1312,6 +1312,76 @@
         }
       }
     },
+    "/api/survey/survey-for-me-details": {
+      "post": {
+        "summary": "Fetch ordered questions and options for a survey",
+        "tags": [
+          "Surveys"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "survey_id"
+                ],
+                "properties": {
+                  "survey_id": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "example": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Survey questions fetched successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "count": {
+                      "type": "integer",
+                      "example": 2
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SurveyQuestionDetails"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/api/survey/sector-industry": {
       "post": {
         "summary": "Fetch sector, industry, and sub-industry hierarchy",
@@ -2121,6 +2191,59 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/SurveyQuestions"
+            }
+          }
+        }
+      },
+      "SurveyQuestionDetails": {
+        "type": "object",
+        "properties": {
+          "question_id": {
+            "type": "integer",
+            "example": 10
+          },
+          "question_text": {
+            "type": "string",
+            "example": "How satisfied are you?"
+          },
+          "question_type": {
+            "type": "string",
+            "example": "single_select"
+          },
+          "question_image": {
+            "type": "string",
+            "nullable": true
+          },
+          "is_required": {
+            "type": "boolean",
+            "example": true
+          },
+          "question_order": {
+            "type": "integer",
+            "example": 1
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "option_id": {
+                  "type": "integer",
+                  "example": 20
+                },
+                "option_text": {
+                  "type": "string",
+                  "example": "Very satisfied"
+                },
+                "option_image": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "option_order": {
+                  "type": "integer",
+                  "example": 1
+                }
+              }
             }
           }
         }
