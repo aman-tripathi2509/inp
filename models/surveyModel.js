@@ -459,7 +459,7 @@ const getAvailableSurveys = async (member_id) => {
                 member_id != ?
                 
                 -- Active Survey
-                AND status = 0
+                AND status = 1
 
                 -- Age Match
                 AND (
