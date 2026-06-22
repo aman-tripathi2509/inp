@@ -573,6 +573,61 @@ const getSurveyForMeDetails = async (req, res) => {
     }
 };
 
+const submitSurvey = async (req, res) => {
+
+    try {
+
+        const { survey_id, answers } = req.body;
+        const parsedSurveyId = Number(survey_id);
+
+        if (
+            !Number.isInteger(parsedSurveyId) ||
+            parsedSurveyId <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid survey_id is required"
+            });
+        }
+
+        if (
+            !Array.isArray(answers) ||
+            answers.length === 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "answers must be a non-empty array"
+            });
+        }
+
+        const result = await Survey.submitSurvey(
+            parsedSurveyId,
+            req.user.member_id,
+            answers
+        );
+
+        return res.status(201).json({
+            success: true,
+            message: "Survey submitted successfully",
+            data: result
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        const statusCode = error.statusCode || 500;
+
+        return res.status(statusCode).json({
+            success: false,
+            message:
+                statusCode === 500
+                    ? "Internal Server Error"
+                    : error.message
+        });
+    }
+};
+
 
 
 /**
@@ -641,5 +696,6 @@ module.exports = {saveSurveyDetails,
     getMySurveys,
     getAvailableSurveys,
     getSurveyForMeDetails,
+    submitSurvey,
     getSectors,
      getSectorIndustryHierarchy, get_Countries, get_CompanySize, get_CompanyRevenue, getIndustries};
