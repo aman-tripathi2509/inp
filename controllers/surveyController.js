@@ -531,13 +531,21 @@ const getSurveyForMeDetails = async (req, res) => {
 
         const result =
             await Survey.getSurveyForMeDetails(
-                parsedSurveyId
+                parsedSurveyId,
+                req.user.member_id
             );
 
         if (!result.surveyExists) {
             return res.status(404).json({
                 success: false,
                 message: "Survey not found"
+            });
+        }
+
+        if (!result.isAvailable) {
+            return res.status(403).json({
+                success: false,
+                message: "Survey is not available for this user"
             });
         }
 
@@ -550,6 +558,13 @@ const getSurveyForMeDetails = async (req, res) => {
     } catch (error) {
 
         console.error(error);
+
+        if (error.message === "User not found") {
+            return res.status(404).json({
+                success: false,
+                message: error.message
+            });
+        }
 
         return res.status(500).json({
             success: false,

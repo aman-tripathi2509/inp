@@ -1373,6 +1373,9 @@
           "400": {
             "$ref": "#/components/responses/BadRequest"
           },
+          "403": {
+            "description": "Survey is not available for the authenticated user"
+          },
           "404": {
             "$ref": "#/components/responses/NotFound"
           },

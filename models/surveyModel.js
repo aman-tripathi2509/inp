@@ -447,7 +447,7 @@ const getAvailableSurveys = async (member_id) => {
         `;
 
         const [[user]] = await db.query(userQuery, [member_id]);
-
+        console.log("User Details:", user);
         if (!user) {
             throw new Error("User not found");
         }
@@ -527,7 +527,7 @@ const getAvailableSurveys = async (member_id) => {
     }
 };
 
-const getSurveyForMeDetails = async (survey_id) => {
+const getSurveyForMeDetails = async (survey_id, member_id) => {
 
     const [[survey]] = await db.query(
         `
@@ -542,6 +542,90 @@ const getSurveyForMeDetails = async (survey_id) => {
     if (!survey) {
         return {
             surveyExists: false,
+            questions: []
+        };
+    }
+
+    const [[user]] = await db.query(
+        `
+        SELECT
+            u.gender,
+            u.country,
+            u.state,
+            COALESCE(
+                TIMESTAMPDIFF(YEAR, u.dob, CURDATE()),
+                u.age_entered
+            ) AS age,
+            up.sector,
+            up.industry
+        FROM user u
+        LEFT JOIN user_profiles up
+            ON up.u_id = u.id
+        WHERE u.member_id = ?
+        LIMIT 1
+        `,
+        [member_id]
+    );
+
+    if (!user) {
+        throw new Error("User not found");
+    }
+
+    const [[availableSurvey]] = await db.query(
+        `
+        SELECT id
+        FROM inp_survey
+        WHERE
+            id = ?
+            AND member_id != ?
+            AND status = 1
+            AND (
+                min_age IS NULL
+                OR max_age IS NULL
+                OR ? BETWEEN min_age AND max_age
+            )
+            AND (
+                gender = 0
+                OR gender = ?
+            )
+            AND (
+                country IS NULL
+                OR country = ''
+                OR country = ?
+            )
+            AND (
+                state IS NULL
+                OR state = ''
+                OR state = ?
+            )
+            AND (
+                sector IS NULL
+                OR sector = ''
+                OR LOWER(TRIM(sector)) = LOWER(TRIM(?))
+            )
+            AND (
+                industry IS NULL
+                OR industry = ''
+                OR LOWER(TRIM(industry)) = LOWER(TRIM(?))
+            )
+        LIMIT 1
+        `,
+        [
+            survey_id,
+            member_id,
+            user.age,
+            user.gender,
+            user.country,
+            user.state,
+            user.sector,
+            user.industry
+        ]
+    );
+
+    if (!availableSurvey) {
+        return {
+            surveyExists: true,
+            isAvailable: false,
             questions: []
         };
     }
@@ -600,6 +684,7 @@ const getSurveyForMeDetails = async (survey_id) => {
 
     return {
         surveyExists: true,
+        isAvailable: true,
         questions: Array.from(
             questionMap.values()
         )
