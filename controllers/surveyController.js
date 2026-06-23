@@ -686,6 +686,83 @@ const getIndustries = async (req, res) => {
     }
 };
 
+const createMySurveyStatusHandler = (
+    modelMethod,
+    statusLabel
+) => async (req, res) => {
+    try {
+        const member_id = req.user.member_id;
+        const parsedLimit = Number.parseInt(req.query.limit, 10);
+        const parsedCursor = Number.parseInt(req.query.cursor, 10);
+        const limit = req.query.limit === undefined ? 15 : parsedLimit;
+        const cursor = req.query.cursor === undefined ? null : parsedCursor;
+
+        if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+            return res.status(400).json({
+                success: false,
+                message: "limit must be an integer between 1 and 50"
+            });
+        }
+
+        if (
+            cursor !== null &&
+            (!Number.isInteger(cursor) || cursor < 1)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "cursor must be a positive integer"
+            });
+        }
+
+        const result = await modelMethod(
+            member_id,
+            cursor,
+            limit
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: `My ${statusLabel} surveys fetched successfully`,
+            count: result.surveys.length,
+            totalCount: result.totalCount,
+            data: result.surveys,
+            pagination: {
+                limit,
+                nextCursor: result.nextCursor,
+                hasMore: result.hasMore
+            }
+        });
+
+    } catch (error) {
+        console.error(`Error fetching my ${statusLabel} surveys:`, error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal Server Error"
+        });
+    }
+};
+
+const getMyActiveSurveys = createMySurveyStatusHandler(
+    Survey.getMyActiveSurveys,
+    "active"
+);
+
+const getMyDraftSurveys = createMySurveyStatusHandler(
+    Survey.getMyDraftSurveys,
+    "draft"
+);
+
+const getMyClosedSurveys = createMySurveyStatusHandler(
+    Survey.getMyClosedSurveys,
+    "closed"
+);
+
+const getMyDeletedSurveys = createMySurveyStatusHandler(
+    Survey.getMyDeletedSurveys,
+    "deleted"
+);
+
 module.exports = {saveSurveyDetails,
     updateSurveyDetails,
     saveSurveyQuestions,
@@ -698,4 +775,8 @@ module.exports = {saveSurveyDetails,
     getSurveyForMeDetails,
     submitSurvey,
     getSectors,
+    getMyActiveSurveys,
+    getMyDraftSurveys,
+    getMyClosedSurveys,
+    getMyDeletedSurveys,
      getSectorIndustryHierarchy, get_Countries, get_CompanySize, get_CompanyRevenue, getIndustries};

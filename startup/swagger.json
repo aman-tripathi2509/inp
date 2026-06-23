@@ -1291,6 +1291,217 @@
         }
       }
     },
+    "/api/survey/active-surveys": {
+      "get": {
+        "summary": "Fetch active surveys created by the authenticated user",
+        "description": "Returns surveys owned by the authenticated user with status 1, ordered by descending survey ID using cursor-based pagination.",
+        "tags": [
+          "Surveys"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum number of surveys to return.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 15,
+              "example": 15
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Leave empty for the first request. For subsequent requests, use the nextCursor returned by the previous response.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active surveys fetched successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "My active surveys fetched successfully"
+                    },
+                    "count": {
+                      "type": "integer",
+                      "example": 15
+                    },
+                    "totalCount": {
+                      "type": "integer",
+                      "example": 42
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ActiveSurvey"
+                      }
+                    },
+                    "pagination": {
+                      "type": "object",
+                      "properties": {
+                        "limit": {
+                          "type": "integer",
+                          "example": 15
+                        },
+                        "nextCursor": {
+                          "type": "integer",
+                          "nullable": true,
+                          "example": 85
+                        },
+                        "hasMore": {
+                          "type": "boolean",
+                          "example": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/survey/draft-surveys": {
+      "get": {
+        "summary": "Fetch draft surveys created by the authenticated user",
+        "description": "Returns surveys owned by the authenticated user with status 0 using cursor-based pagination.",
+        "tags": [
+          "Surveys"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SurveyListLimit"
+          },
+          {
+            "$ref": "#/components/parameters/SurveyListCursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SurveyCursorListingSuccess"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/survey/closed-surveys": {
+      "get": {
+        "summary": "Fetch closed surveys created by the authenticated user",
+        "description": "Returns surveys owned by the authenticated user with status 2 using cursor-based pagination.",
+        "tags": [
+          "Surveys"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SurveyListLimit"
+          },
+          {
+            "$ref": "#/components/parameters/SurveyListCursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SurveyCursorListingSuccess"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/survey/deleted-surveys": {
+      "get": {
+        "summary": "Fetch deleted surveys created by the authenticated user",
+        "description": "Returns surveys owned by the authenticated user with status 3 using cursor-based pagination.",
+        "tags": [
+          "Surveys"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SurveyListLimit"
+          },
+          {
+            "$ref": "#/components/parameters/SurveyListCursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SurveyCursorListingSuccess"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/api/survey/survey-for-me": {
       "get": {
         "summary": "Fetch surveys available for the authenticated user",
@@ -1928,9 +2139,85 @@
         "schema": {
           "type": "integer"
         }
+      },
+      "SurveyListLimit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "description": "Maximum number of surveys to return.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 15,
+          "example": 15
+        }
+      },
+      "SurveyListCursor": {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "description": "Leave empty for the first request. For subsequent requests, use the nextCursor returned by the previous response.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "nullable": true
+        }
       }
     },
     "responses": {
+      "SurveyCursorListingSuccess": {
+        "description": "Surveys fetched successfully",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean",
+                  "example": true
+                },
+                "message": {
+                  "type": "string",
+                  "example": "My draft surveys fetched successfully"
+                },
+                "count": {
+                  "type": "integer",
+                  "example": 15
+                },
+                "totalCount": {
+                  "type": "integer",
+                  "example": 42
+                },
+                "data": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SurveyStatusItem"
+                  }
+                },
+                "pagination": {
+                  "type": "object",
+                  "properties": {
+                    "limit": {
+                      "type": "integer",
+                      "example": 15
+                    },
+                    "nextCursor": {
+                      "type": "integer",
+                      "nullable": true,
+                      "example": 85
+                    },
+                    "hasMore": {
+                      "type": "boolean",
+                      "example": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "Success": {
         "description": "Request completed successfully",
         "content": {
@@ -2269,59 +2556,6 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/SurveyQuestions"
-            }
-          }
-        }
-      },
-      "SurveyQuestionDetails": {
-        "type": "object",
-        "properties": {
-          "question_id": {
-            "type": "integer",
-            "example": 10
-          },
-          "question_text": {
-            "type": "string",
-            "example": "How satisfied are you?"
-          },
-          "question_type": {
-            "type": "string",
-            "example": "single_select"
-          },
-          "question_image": {
-            "type": "string",
-            "nullable": true
-          },
-          "is_required": {
-            "type": "boolean",
-            "example": true
-          },
-          "question_order": {
-            "type": "integer",
-            "example": 1
-          },
-          "options": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "option_id": {
-                  "type": "integer",
-                  "example": 20
-                },
-                "option_text": {
-                  "type": "string",
-                  "example": "Very satisfied"
-                },
-                "option_image": {
-                  "type": "string",
-                  "nullable": true
-                },
-                "option_order": {
-                  "type": "integer",
-                  "example": 1
-                }
-              }
             }
           }
         }
@@ -2965,6 +3199,63 @@
           }
         }
       },
+      "ActiveSurvey": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SurveyDetails"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer",
+                "example": 100
+              },
+              "member_id": {
+                "type": "string",
+                "example": "2026100001"
+              },
+              "status": {
+                "type": "integer",
+                "enum": [
+                  1
+                ],
+                "example": 1
+              }
+            }
+          }
+        ]
+      },
+      "SurveyStatusItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SurveyDetails"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer",
+                "example": 100
+              },
+              "member_id": {
+                "type": "string",
+                "example": "2026100001"
+              },
+              "status": {
+                "type": "integer",
+                "enum": [
+                  0,
+                  1,
+                  2,
+                  3
+                ],
+                "example": 0
+              }
+            }
+          }
+        ]
+      },
       "SurveyDetails": {
         "type": "object",
         "required": [
@@ -3065,6 +3356,59 @@
                   "items": {
                     "type": "string"
                   }
+                }
+              }
+            }
+          }
+        }
+      },
+      "SurveyQuestionDetails": {
+        "type": "object",
+        "properties": {
+          "question_id": {
+            "type": "integer",
+            "example": 10
+          },
+          "question_text": {
+            "type": "string",
+            "example": "How satisfied are you?"
+          },
+          "question_type": {
+            "type": "string",
+            "example": "single_select"
+          },
+          "question_image": {
+            "type": "string",
+            "nullable": true
+          },
+          "is_required": {
+            "type": "boolean",
+            "example": true
+          },
+          "question_order": {
+            "type": "integer",
+            "example": 1
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "option_id": {
+                  "type": "integer",
+                  "example": 20
+                },
+                "option_text": {
+                  "type": "string",
+                  "example": "Very satisfied"
+                },
+                "option_image": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "option_order": {
+                  "type": "integer",
+                  "example": 1
                 }
               }
             }

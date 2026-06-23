@@ -421,6 +421,71 @@ const getMySurveys = async (member_id, status = null) => {
     }
 };
 
+const getMySurveysByStatus = async (
+    member_id,
+    status,
+    cursor = null,
+    limit = 15
+) => {
+    const countQuery = `
+        SELECT COUNT(*) AS total
+        FROM inp_survey
+        WHERE member_id = ?
+          AND status = ?
+    `;
+
+    const [[countResult]] = await db.query(
+        countQuery,
+        [member_id, status]
+    );
+
+    let surveyQuery = `
+        SELECT *
+        FROM inp_survey
+        WHERE member_id = ?
+          AND status = ?
+    `;
+
+    const params = [member_id, status];
+
+    if (cursor !== null) {
+        surveyQuery += ` AND id < ?`;
+        params.push(cursor);
+    }
+
+    surveyQuery += `
+        ORDER BY id DESC
+        LIMIT ?
+    `;
+    params.push(limit + 1);
+
+    const [rows] = await db.query(surveyQuery, params);
+    const hasMore = rows.length > limit;
+    const surveys = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = hasMore
+        ? surveys[surveys.length - 1].id
+        : null;
+
+    return {
+        surveys,
+        totalCount: Number(countResult.total || 0),
+        hasMore,
+        nextCursor
+    };
+};
+
+const getMyActiveSurveys = (member_id, cursor = null, limit = 15) =>
+    getMySurveysByStatus(member_id, 1, cursor, limit);
+
+const getMyDraftSurveys = (member_id, cursor = null, limit = 15) =>
+    getMySurveysByStatus(member_id, 0, cursor, limit);
+
+const getMyClosedSurveys = (member_id, cursor = null, limit = 15) =>
+    getMySurveysByStatus(member_id, 2, cursor, limit);
+
+const getMyDeletedSurveys = (member_id, cursor = null, limit = 15) =>
+    getMySurveysByStatus(member_id, 3, cursor, limit);
+
 const getAvailableSurveys = async (member_id) => {
 
     try {
@@ -1233,6 +1298,10 @@ module.exports = {createSurveyDetails,
     closeSurvey,
     archiveSurvey,
     getMySurveys,
+    getMyActiveSurveys,
+    getMyDraftSurveys,
+    getMyClosedSurveys,
+    getMyDeletedSurveys,
     getAvailableSurveys,
     getSurveyForMeDetails,
     submitSurvey,
