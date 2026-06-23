@@ -12,6 +12,7 @@ const {
     getMySurveys,
     getAvailableSurveys,
     getSurveyForMeDetails,
+    submitSurvey,
     get_Countries,
     get_CompanySize,
     get_CompanyRevenue,
@@ -96,6 +97,13 @@ router.post(
     "/survey-for-me-details",
     authMiddleware,
     getSurveyForMeDetails
+);
+
+// Submit answers for an available survey
+router.post(
+    "/submit-survey",
+    authMiddleware,
+    submitSurvey
 );
 
 /*
