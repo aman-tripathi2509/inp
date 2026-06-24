@@ -1190,6 +1190,88 @@ const submitSurvey = async (
     }
 };
 
+const deleteSurveyResponse = async (
+    response_id,
+    member_id
+) => {
+
+    let connection;
+
+    const createError = (message, statusCode) => {
+        const error = new Error(message);
+        error.statusCode = statusCode;
+        return error;
+    };
+
+    try {
+
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+
+        const [[response]] = await connection.query(
+            `
+            SELECT id, survey_id, question_id, member_id
+            FROM inp_survey_response
+            WHERE id = ?
+            LIMIT 1
+            FOR UPDATE
+            `,
+            [response_id]
+        );
+
+        if (!response) {
+            throw createError("Survey response not found", 404);
+        }
+
+        if (Number(response.member_id) !== Number(member_id)) {
+            throw createError(
+                "Unauthorized access to survey response",
+                403
+            );
+        }
+
+        const [optionResult] = await connection.query(
+            `
+            DELETE FROM inp_survey_response_option
+            WHERE response_id = ?
+            `,
+            [response_id]
+        );
+
+        const [responseResult] = await connection.query(
+            `
+            DELETE FROM inp_survey_response
+            WHERE id = ?
+            `,
+            [response_id]
+        );
+
+        await connection.commit();
+
+        return {
+            response_id,
+            survey_id: response.survey_id,
+            question_id: response.question_id,
+            deleted_responses: responseResult.affectedRows,
+            deleted_options: optionResult.affectedRows
+        };
+
+    } catch (error) {
+
+        if (connection) {
+            await connection.rollback();
+        }
+
+        throw error;
+
+    } finally {
+
+        if (connection) {
+            connection.release();
+        }
+    }
+};
+
 const getSurveyDetails = async (survey_id, member_id) => {
     try {
         const query = `
@@ -1399,4 +1481,4 @@ module.exports = {createSurveyDetails,
     getSurveyForMeDetails,
     submitSurvey,
      getSectors, getIndustries,getSubIndustries, getCountries, getCompanySize, getCompanyRevenue,
-    getSurveyDetails, getSurveyQuestions};
+    getSurveyDetails, getSurveyQuestions, deleteSurveyResponse};

@@ -24,7 +24,8 @@ const {
     getMyClosedSurveys,
     getMyDeletedSurveys,
     getSurveyDetails,
-    getSurveyQuestions
+    getSurveyQuestions,
+    deleteSurveyResponse
 } = require("../controllers/surveyController");
 
 const {
@@ -110,6 +111,13 @@ router.post(
     "/submit-survey",
     authMiddleware,
     submitSurvey
+);
+
+// Delete submitted survey response and selected options
+router.delete(
+    "/survey-response/:response_id",
+    authMiddleware,
+    deleteSurveyResponse
 );
 
 // Get Active Surveys of loggedIn user

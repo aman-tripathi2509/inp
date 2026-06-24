@@ -628,6 +628,50 @@ const submitSurvey = async (req, res) => {
     }
 };
 
+const deleteSurveyResponse = async (req, res) => {
+
+    try {
+
+        const { response_id } = req.params;
+        const parsedResponseId = Number(response_id);
+
+        if (
+            !Number.isInteger(parsedResponseId) ||
+            parsedResponseId <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid response_id is required"
+            });
+        }
+
+        const result = await Survey.deleteSurveyResponse(
+            parsedResponseId,
+            req.user.member_id
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Survey response deleted successfully",
+            data: result
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        const statusCode = error.statusCode || 500;
+
+        return res.status(statusCode).json({
+            success: false,
+            message:
+                statusCode === 500
+                    ? "Internal Server Error"
+                    : error.message
+        });
+    }
+};
+
 
 
 /**
@@ -860,4 +904,5 @@ module.exports = {saveSurveyDetails,
     getMyDeletedSurveys,
      getSectorIndustryHierarchy, get_Countries, get_CompanySize, get_CompanyRevenue, getIndustries,
     getSurveyDetails,
-getSurveyQuestions};
+getSurveyQuestions,
+deleteSurveyResponse};

@@ -1859,6 +1859,95 @@
         }
       }
     },
+    "/api/survey/survey-response/{response_id}": {
+      "delete": {
+        "summary": "Delete a survey response",
+        "description": "Deletes a submitted survey response owned by the authenticated user and removes its selected response options.",
+        "tags": [
+          "Surveys"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "response_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "ID from inp_survey_response.",
+            "example": 15
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Survey response deleted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Survey response deleted successfully"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "response_id": {
+                          "type": "integer",
+                          "example": 15
+                        },
+                        "survey_id": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "question_id": {
+                          "type": "integer",
+                          "example": 4
+                        },
+                        "deleted_responses": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "deleted_options": {
+                          "type": "integer",
+                          "example": 2
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Survey response does not belong to the authenticated user"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/api/survey/sector-industry": {
       "post": {
         "summary": "Fetch sector, industry, and sub-industry hierarchy",
