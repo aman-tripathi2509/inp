@@ -628,6 +628,50 @@ const submitSurvey = async (req, res) => {
     }
 };
 
+const deleteSurveyResponse = async (req, res) => {
+
+    try {
+
+        const { response_id } = req.params;
+        const parsedResponseId = Number(response_id);
+
+        if (
+            !Number.isInteger(parsedResponseId) ||
+            parsedResponseId <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid response_id is required"
+            });
+        }
+
+        const result = await Survey.deleteSurveyResponse(
+            parsedResponseId,
+            req.user.member_id
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Survey response deleted successfully",
+            data: result
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        const statusCode = error.statusCode || 500;
+
+        return res.status(statusCode).json({
+            success: false,
+            message:
+                statusCode === 500
+                    ? "Internal Server Error"
+                    : error.message
+        });
+    }
+};
+
 
 
 /**
@@ -763,6 +807,85 @@ const getMyDeletedSurveys = createMySurveyStatusHandler(
     "deleted"
 );
 
+const getSurveyDetails = async (req, res) => {
+
+    try {
+
+        const { survey_id } = req.params;
+        const parsedSurveyId = Number(survey_id);
+        const member_id = req.user.member_id;
+
+        if (
+            !Number.isInteger(parsedSurveyId) ||
+            parsedSurveyId <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid survey_id is required"
+            });
+        }
+
+        const result = await Survey.getSurveyDetails(
+            parsedSurveyId,
+            member_id
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Survey details fetched successfully",
+            data: result
+        });
+
+    }catch(error){
+        console.error("Error fetching survey details:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Internal Server Error"
+        });
+    }
+
+
+}
+
+const getSurveyQuestions = async (req, res) => {
+     
+     try {
+
+        const { survey_id } = req.params;
+        const parsedSurveyId = Number(survey_id);
+        const member_id = req.user.member_id;
+
+        if (
+            !Number.isInteger(parsedSurveyId) ||
+            parsedSurveyId <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid survey_id is required"
+            });
+        }
+
+        const result = await Survey.getSurveyQuestions(
+            parsedSurveyId,
+            member_id
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Survey questions fetched successfully",
+            data: result
+        });
+
+    }catch(error){
+        console.error("Error fetching survey questions:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Internal Server Error"
+        });
+    }
+
+}
+
 module.exports = {saveSurveyDetails,
     updateSurveyDetails,
     saveSurveyQuestions,
@@ -779,4 +902,7 @@ module.exports = {saveSurveyDetails,
     getMyDraftSurveys,
     getMyClosedSurveys,
     getMyDeletedSurveys,
-     getSectorIndustryHierarchy, get_Countries, get_CompanySize, get_CompanyRevenue, getIndustries};
+     getSectorIndustryHierarchy, get_Countries, get_CompanySize, get_CompanyRevenue, getIndustries,
+    getSurveyDetails,
+getSurveyQuestions,
+deleteSurveyResponse};

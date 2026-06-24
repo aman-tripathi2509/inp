@@ -1190,6 +1190,181 @@ const submitSurvey = async (
     }
 };
 
+const deleteSurveyResponse = async (
+    response_id,
+    member_id
+) => {
+
+    let connection;
+
+    const createError = (message, statusCode) => {
+        const error = new Error(message);
+        error.statusCode = statusCode;
+        return error;
+    };
+
+    try {
+
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+
+        const [[response]] = await connection.query(
+            `
+            SELECT id, survey_id, question_id, member_id
+            FROM inp_survey_response
+            WHERE id = ?
+            LIMIT 1
+            FOR UPDATE
+            `,
+            [response_id]
+        );
+
+        if (!response) {
+            throw createError("Survey response not found", 404);
+        }
+
+        if (Number(response.member_id) !== Number(member_id)) {
+            throw createError(
+                "Unauthorized access to survey response",
+                403
+            );
+        }
+
+        const [optionResult] = await connection.query(
+            `
+            DELETE FROM inp_survey_response_option
+            WHERE response_id = ?
+            `,
+            [response_id]
+        );
+
+        const [responseResult] = await connection.query(
+            `
+            DELETE FROM inp_survey_response
+            WHERE id = ?
+            `,
+            [response_id]
+        );
+
+        await connection.commit();
+
+        return {
+            response_id,
+            survey_id: response.survey_id,
+            question_id: response.question_id,
+            deleted_responses: responseResult.affectedRows,
+            deleted_options: optionResult.affectedRows
+        };
+
+    } catch (error) {
+
+        if (connection) {
+            await connection.rollback();
+        }
+
+        throw error;
+
+    } finally {
+
+        if (connection) {
+            connection.release();
+        }
+    }
+};
+
+const getSurveyDetails = async (survey_id, member_id) => {
+    try {
+        const query = `
+            SELECT *
+            FROM inp_survey s
+            WHERE s.id = ? AND s.member_id = ?
+        `;
+        const [rows] = await db.query(query, [survey_id, member_id]);
+        return rows[0];
+    } catch (error) {
+        console.error('Error fetching survey details:', error);
+        throw error;
+    }
+};
+
+const getSurveyQuestions = async (survey_id, member_id) => {
+    try {
+
+        // Check if the question belong to the survey created by the logged-in user
+        const checkQuery = `SELECT member_id FROM inp_survey WHERE id = ?`;
+
+        const [checkRows] = await db.query(checkQuery, [survey_id]);
+
+        if (checkRows.length === 0) {
+            throw new Error('Survey not found');
+        }
+
+        if(checkRows[0].member_id !== member_id) {
+            throw new Error('Unauthorized access to survey questions');
+        }
+
+       const [rows] = await db.query(
+            `
+            SELECT
+            q.id AS question_id,
+            q.survey_id,
+            q.question_text,
+            q.question_type,
+            q.question_image,
+            q.is_required,
+            q.question_order,
+
+            o.id AS option_id,
+            o.option_text,
+            o.option_image,
+            o.option_order
+            FROM inp_survey_question q
+            LEFT JOIN inp_survey_question_option o
+                ON q.id = o.question_id
+                AND q.survey_id = o.survey_id
+            WHERE q.survey_id = ?
+            ORDER BY q.question_order ASC, o.option_order ASC
+            `,
+            [survey_id]
+            );
+
+        const questionsMap = {};
+
+        rows.forEach((row) => {
+        if (!questionsMap[row.question_id]) {
+            questionsMap[row.question_id] = {
+            id: row.question_id,
+            survey_id: row.survey_id,
+            question_text: row.question_text,
+            question_type: row.question_type,
+            question_image: row.question_image,
+            is_required: row.is_required,
+            question_order: row.question_order,
+            options: []
+            };
+        }
+
+        if (row.option_id) {
+            questionsMap[row.question_id].options.push({
+            id: row.option_id,
+            option_text: row.option_text,
+            option_image: row.option_image,
+            option_order: row.option_order
+            });
+        }
+        });
+
+        const questions = Object.values(questionsMap);
+
+        return questions;
+
+        return rows;
+    } catch (error) {
+        console.error('Error fetching survey questions:', error);
+        throw error;
+    }
+}
+
 
 /**
  * Fetch top-level Sectors (question_id = 68)
@@ -1305,4 +1480,5 @@ module.exports = {createSurveyDetails,
     getAvailableSurveys,
     getSurveyForMeDetails,
     submitSurvey,
-     getSectors, getIndustries,getSubIndustries, getCountries, getCompanySize, getCompanyRevenue};
+     getSectors, getIndustries,getSubIndustries, getCountries, getCompanySize, getCompanyRevenue,
+    getSurveyDetails, getSurveyQuestions, deleteSurveyResponse};
