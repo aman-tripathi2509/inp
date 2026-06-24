@@ -18,7 +18,11 @@ const {
     get_CompanyRevenue,
     getSectorIndustryHierarchy,
     getSectors,
-    getIndustries
+    getIndustries,
+    getMyActiveSurveys,
+    getMyDraftSurveys,
+    getMyClosedSurveys,
+    getMyDeletedSurveys
 } = require("../controllers/surveyController");
 
 const {
@@ -154,6 +158,34 @@ router.post(
     "/industries",
     authMiddleware,
     getIndustries
+);
+
+// Get Active Surveys of loggedIn user
+router.get(
+    "/active-surveys",
+    authMiddleware,
+    getMyActiveSurveys
+);
+
+// Get Draft Surveys of loggedIn user
+router.get(
+    "/draft-surveys",
+    authMiddleware,
+    getMyDraftSurveys
+);
+
+// Get Closed Surveys of loggedIn user
+router.get(
+    "/closed-surveys",
+    authMiddleware,
+    getMyClosedSurveys
+);
+
+// Get Deleted Surveys of loggedIn user
+router.get(
+    "/deleted-surveys",
+    authMiddleware,
+    getMyDeletedSurveys
 );
 
 module.exports = router;
