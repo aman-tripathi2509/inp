@@ -1502,6 +1502,194 @@
         }
       }
     },
+    "/api/survey/survey-details/{survey_id}": {
+      "get": {
+        "summary": "Fetch survey details for the authenticated user",
+        "description": "Returns the survey header only when the requested survey belongs to the authenticated user.",
+        "tags": [
+          "Surveys"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SurveyId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Survey details fetched successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Survey details fetched successfully"
+                    },
+                    "data": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "survey_id": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "title": {
+                          "type": "string",
+                          "example": "Customer satisfaction survey"
+                        },
+                        "description": {
+                          "type": "string",
+                          "nullable": true,
+                          "example": "Survey to understand customer satisfaction."
+                        },
+                        "created_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "example": "2026-06-24T10:30:00.000Z"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/survey/survey-questions/{survey_id}": {
+      "get": {
+        "summary": "Fetch survey questions for the authenticated user",
+        "description": "Returns ordered questions with nested options for a survey owned by the authenticated user.",
+        "tags": [
+          "Surveys"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SurveyId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Survey questions fetched successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Survey questions fetched successfully"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer",
+                            "example": 10
+                          },
+                          "survey_id": {
+                            "type": "integer",
+                            "example": 1
+                          },
+                          "question_text": {
+                            "type": "string",
+                            "example": "How satisfied are you?"
+                          },
+                          "question_type": {
+                            "type": "string",
+                            "example": "single_select"
+                          },
+                          "question_image": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "is_required": {
+                            "type": "integer",
+                            "enum": [
+                              0,
+                              1
+                            ],
+                            "example": 1
+                          },
+                          "question_order": {
+                            "type": "integer",
+                            "example": 1
+                          },
+                          "options": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "integer",
+                                  "example": 20
+                                },
+                                "option_text": {
+                                  "type": "string",
+                                  "example": "Very satisfied"
+                                },
+                                "option_image": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "option_order": {
+                                  "type": "integer",
+                                  "example": 1
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/api/survey/survey-for-me": {
       "get": {
         "summary": "Fetch surveys available for the authenticated user",
