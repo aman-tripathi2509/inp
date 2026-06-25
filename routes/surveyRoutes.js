@@ -31,6 +31,9 @@ const {
 const {
     authMiddleware
 } = require("../middlewares/authMiddleware");
+const {
+    uploadSurveyImages
+} = require("../middlewares/surveyUploadMiddleware");
 
 
 /*
@@ -43,6 +46,7 @@ const {
 router.post(
     "/save-survey-details",
     authMiddleware,
+    uploadSurveyImages,
     saveSurveyDetails
 );
 
@@ -50,6 +54,7 @@ router.post(
 router.put(
     "/update-survey-details/:survey_id",
     authMiddleware,
+    uploadSurveyImages,
     updateSurveyDetails
 );
 
@@ -57,6 +62,7 @@ router.put(
 router.post(
     "/save-survey-questions",
     authMiddleware,
+    uploadSurveyImages,
     saveSurveyQuestions
 );
 

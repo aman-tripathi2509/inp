@@ -1,5 +1,6 @@
 require("dotenv").config();
 const express = require("express");
+const path = require("path");
 const db = require("./config/db");
 const setupSwagger = require("./startup/swagger");
 
@@ -8,6 +9,7 @@ const app = express();
 // ✅ ONLY keep these
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use("/uploads", express.static(path.join(__dirname, "public", "uploads")));
 
 // test API
 app.get("/users", async (req, res) => {

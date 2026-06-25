@@ -2810,6 +2810,11 @@
       "SurveyDetails": {
         "required": true,
         "content": {
+          "multipart/form-data": {
+            "schema": {
+              "$ref": "#/components/schemas/SurveyDetailsMultipart"
+            }
+          },
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/SurveyDetails"
@@ -2820,6 +2825,11 @@
       "SurveyDetailsUpdate": {
         "required": false,
         "content": {
+          "multipart/form-data": {
+            "schema": {
+              "$ref": "#/components/schemas/SurveyDetailsMultipart"
+            }
+          },
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/SurveyDetails"
@@ -2830,6 +2840,11 @@
       "SurveyQuestions": {
         "required": true,
         "content": {
+          "multipart/form-data": {
+            "schema": {
+              "$ref": "#/components/schemas/SurveyQuestionsMultipart"
+            }
+          },
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/SurveyQuestions"
@@ -3586,6 +3601,61 @@
           }
         }
       },
+      "SurveyDetailsMultipart": {
+        "type": "object",
+        "required": [
+          "survey_title"
+        ],
+        "properties": {
+          "survey_title": {
+            "type": "string",
+            "example": "Customer satisfaction survey"
+          },
+          "survey_description": {
+            "type": "string"
+          },
+          "survey_image": {
+            "type": "string",
+            "format": "binary",
+            "description": "Survey image file. Use a string URL/path only when sending application/json."
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "min_age": {
+            "type": "integer"
+          },
+          "max_age": {
+            "type": "integer"
+          },
+          "gender": {
+            "type": "string"
+          },
+          "target_responses": {
+            "type": "integer"
+          },
+          "reward_per_participant": {
+            "type": "number"
+          },
+          "sector": {
+            "type": "string"
+          },
+          "industry": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
       "SurveyQuestions": {
         "type": "object",
         "required": [
@@ -3628,14 +3698,71 @@
                     "nps"
                   ]
                 },
+                "question_image": {
+                  "type": "string",
+                  "nullable": true,
+                  "example": "/uploads/surveys/question.jpg"
+                },
+                "is_required": {
+                  "type": "boolean",
+                  "example": true
+                },
                 "options": {
                   "type": "array",
                   "items": {
-                    "type": "string"
+                    "type": "object",
+                    "properties": {
+                      "option_text": {
+                        "type": "string",
+                        "example": "Very satisfied"
+                      },
+                      "option_image": {
+                        "type": "string",
+                        "nullable": true,
+                        "example": "/uploads/surveys/option.jpg"
+                      }
+                    }
                   }
                 }
               }
             }
+          }
+        }
+      },
+      "SurveyQuestionsMultipart": {
+        "type": "object",
+        "required": [
+          "survey_id",
+          "questions"
+        ],
+        "properties": {
+          "survey_id": {
+            "type": "integer",
+            "example": 1
+          },
+          "tags": {
+            "type": "string",
+            "description": "JSON array string, for example: [\"customer\",\"satisfaction\"]"
+          },
+          "questions": {
+            "type": "string",
+            "description": "JSON array string. Include question_image/option_image only when reusing existing URLs; uploaded files override these fields."
+          },
+          "question_images": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "binary"
+            },
+            "description": "Optional ordered question image files matching the questions array."
+          },
+          "option_images": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "binary"
+            },
+            "description": "Optional ordered option image files matching all options in question order."
           }
         }
       },

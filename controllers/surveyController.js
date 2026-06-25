@@ -1,5 +1,95 @@
 const Survey = require("../models/surveyModel");
 
+const fileUrl = (file) => `/uploads/surveys/${file.filename}`;
+
+const parseJsonField = (value, fallback) => {
+    if (typeof value !== "string") {
+        return value ?? fallback;
+    }
+
+    try {
+        return JSON.parse(value);
+    } catch (error) {
+        return fallback;
+    }
+};
+
+const getUploadedFileMap = (files = []) => {
+    return files.reduce((map, file) => {
+        if (!map[file.fieldname]) {
+            map[file.fieldname] = [];
+        }
+
+        map[file.fieldname].push(file);
+
+        return map;
+    }, {});
+};
+
+const firstFileUrl = (fileMap, fieldNames) => {
+    for (const fieldName of fieldNames) {
+        if (fileMap[fieldName] && fileMap[fieldName][0]) {
+            return fileUrl(fileMap[fieldName][0]);
+        }
+    }
+
+    return null;
+};
+
+const normalizeSurveyQuestionImages = (questions, files = []) => {
+    const fileMap = getUploadedFileMap(files);
+    const questionImageQueue = [...(fileMap.question_images || [])];
+    const optionImageQueue = [...(fileMap.option_images || [])];
+
+    return questions.map((question, questionIndex) => {
+        const normalizedQuestion = {
+            ...question
+        };
+
+        normalizedQuestion.question_image =
+            firstFileUrl(
+                fileMap,
+                [
+                    `questions[${questionIndex}][question_image]`,
+                    `questions[${questionIndex}].question_image`,
+                    `question_image_${questionIndex}`
+                ]
+            ) ||
+            (
+                questionImageQueue.length
+                    ? fileUrl(questionImageQueue.shift())
+                    : normalizedQuestion.question_image
+            ) ||
+            null;
+
+        if (Array.isArray(normalizedQuestion.options)) {
+            normalizedQuestion.options =
+                normalizedQuestion.options.map((option, optionIndex) => {
+                    return {
+                        ...option,
+                        option_image:
+                            firstFileUrl(
+                                fileMap,
+                                [
+                                    `questions[${questionIndex}][options][${optionIndex}][option_image]`,
+                                    `questions[${questionIndex}].options[${optionIndex}].option_image`,
+                                    `option_image_${questionIndex}_${optionIndex}`
+                                ]
+                            ) ||
+                            (
+                                optionImageQueue.length
+                                    ? fileUrl(optionImageQueue.shift())
+                                    : option.option_image
+                            ) ||
+                            null
+                    };
+                });
+        }
+
+        return normalizedQuestion;
+    });
+};
+
 const QUESTION_IDS = {
     sector: 68,
     industry: 69,
@@ -130,6 +220,12 @@ const saveSurveyDetails = async (req, res) => {
             state
         } = req.body;
 
+        const uploadedSurveyImage =
+            firstFileUrl(
+                getUploadedFileMap(req.files),
+                ["survey_image"]
+            );
+
         if (!survey_title) {
             return res.status(400).json({
                 success: false,
@@ -143,7 +239,7 @@ const saveSurveyDetails = async (req, res) => {
                 {
                     survey_title,
                     survey_description,
-                    survey_image,
+                    survey_image: uploadedSurveyImage || survey_image,
                     start_date,
                     end_date,
                     min_age,
@@ -180,10 +276,18 @@ const updateSurveyDetails = async (req, res) => {
     try {
 
         const { survey_id } = req.params;
+        const uploadedSurveyImage =
+            firstFileUrl(
+                getUploadedFileMap(req.files),
+                ["survey_image"]
+            );
 
         await Survey.updateSurveyDetails(
             survey_id,
-            req.body
+            {
+                ...req.body,
+                survey_image: uploadedSurveyImage || req.body.survey_image
+            }
         );
 
         return res.json({
@@ -211,6 +315,8 @@ const saveSurveyQuestions = async (req, res) => {
             questions,
             tags
         } = req.body;
+        const parsedQuestions = parseJsonField(questions, null);
+        const parsedTags = parseJsonField(tags, []);
 
         if (!survey_id) {
 
@@ -221,8 +327,8 @@ const saveSurveyQuestions = async (req, res) => {
         }
 
         if (
-            !questions ||
-            !Array.isArray(questions)
+            !parsedQuestions ||
+            !Array.isArray(parsedQuestions)
         ) {
 
             return res.status(400).json({
@@ -241,7 +347,12 @@ const saveSurveyQuestions = async (req, res) => {
             "nps"
         ];
 
-        for (const q of questions) {
+        const normalizedQuestions = normalizeSurveyQuestionImages(
+            parsedQuestions,
+            req.files
+        );
+
+        for (const q of normalizedQuestions) {
 
             if (
                 !q.question_text ||
@@ -287,8 +398,8 @@ const saveSurveyQuestions = async (req, res) => {
         const result =
             await Survey.saveSurveyQuestions(
                 survey_id,
-                questions,
-                tags
+                normalizedQuestions,
+                parsedTags
             );
 
         return res.json({
