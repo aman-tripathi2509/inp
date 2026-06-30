@@ -424,13 +424,44 @@ const previewSurvey = async (req, res) => {
 
     try {
 
-        const { survey_id } =
-            req.params;
+        const { survey_id } = req.params;
 
-        const result =
-            await Survey.getSurveyPreview(
-                survey_id
-            );
+        const result = await Survey.getSurveyPreview(survey_id);
+
+        const baseUrl = `${req.protocol}://${req.get("host")}`;
+
+        // Survey Image
+        if (result.survey?.survey_image) {
+            result.survey.survey_image =
+                `${baseUrl}${result.survey.survey_image}`;
+        }
+
+        // Question & Option Images
+        if (Array.isArray(result.questions)) {
+
+            result.questions = result.questions.map(question => {
+
+                if (question.question_image) {
+                    question.question_image =
+                        `${baseUrl}${question.question_image}`;
+                }
+
+                if (Array.isArray(question.options)) {
+
+                    question.options = question.options.map(option => {
+
+                        if (option.option_image) {
+                            option.option_image =
+                                `${baseUrl}${option.option_image}`;
+                        }
+
+                        return option;
+                    });
+                }
+
+                return question;
+            });
+        }
 
         return res.json({
             success: true,

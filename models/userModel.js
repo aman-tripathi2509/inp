@@ -1,6 +1,26 @@
 const db = require("../config/db");
 const { aesEncrypt } = require("../utils/encryption");
+const crypto = require("crypto");
 
+
+/*--------------------------------------------------------------
+    Generate a random, unique referral code
+--------------------------------------------------------------*/
+const generateReferralCode = async () => {
+    let code;
+    let exists = true;
+
+    while (exists) {
+        code = crypto.randomBytes(4).toString("hex").toUpperCase(); // e.g. "A1B2C3D4"
+        const [rows] = await db.query(
+            "SELECT id FROM user WHERE referral_code = ?",
+            [code]
+        );
+        exists = rows.length > 0;
+    }
+
+    return code;
+};
 /*--------------------------------------------------------------
     Function to generate the next member_id
 --------------------------------------------------------------*/
@@ -42,7 +62,8 @@ const createUser = async (
     password,
     company_name,
     sector,
-    industry
+    industry,
+    referred_by = null
 ) => {
 
     const connection = await db.getConnection();
@@ -52,6 +73,7 @@ const createUser = async (
         await connection.beginTransaction();
 
         const newMemberId = await getNextMemberId();
+        const newReferralCode = await generateReferralCode();
 
         const nameParts = name.trim().split(/\s+/);
 
@@ -89,19 +111,23 @@ const createUser = async (
             INSERT INTO user
             (
                 member_id,
+                referral_code,
+                referred_by,
                 first_name,
                 middle_name,
                 last_name,
                 personal_email,
                 password
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
         const [userResult] = await connection.query(
             userSql,
             [
                 newMemberId,
+                newReferralCode,
+                referred_by,
                 firstName,
                 middleName,
                 lastName,
@@ -162,7 +188,7 @@ const createUser = async (
 
         await connection.commit();
 
-        return userResult;
+        return { ...userResult, member_id: newMemberId, referral_code: newReferralCode };
 
     } catch (error) {
 
@@ -982,6 +1008,38 @@ const getFunctionByDepartment = async (departmentId) => {
     }
 };
 
+
+/*--------------------------------------------------------------
+    Validate a referral code (must match an existing referral_code)
+--------------------------------------------------------------*/
+const validateReferral = async (referral_code) => {
+    try {
+        const sql = `
+            SELECT id, member_id, referral_code, first_name, last_name
+            FROM user
+            WHERE referral_code = ?
+            LIMIT 1
+        `;
+        const [rows] = await db.query(sql, [referral_code]);
+        return rows;
+    } catch (error) {
+        throw error;
+    }
+};
+
+const createSignupRequest = async (full_name, email, company_name, industry, country) => {
+    try {
+        const sql = `
+            INSERT INTO signup_request
+            (full_name, email, company_name, industry, country, status)
+            VALUES (?, ?, ?, ?, ?, 1)
+        `; // 1 = pending
+        const [result] = await db.query(sql, [full_name, email, company_name, industry, country]);
+        return { request_id: result.insertId };
+    } catch (error) {
+        throw error;
+    }
+};
 /*--------------------------------------------------------------
     Exporting the Functions
 --------------------------------------------------------------*/
@@ -1008,5 +1066,7 @@ module.exports = {
     getHouseholdIncome,
     getEmployementStatus,
     getDepartment,
-    getFunctionByDepartment
+    getFunctionByDepartment,
+    validateReferral,
+    createSignupRequest
     };

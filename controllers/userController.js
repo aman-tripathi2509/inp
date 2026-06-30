@@ -14,79 +14,6 @@ const transporter = nodemailer.createTransport({
 });
 
 /*--------------------------------------------------------------
-    Function to register a new user
---------------------------------------------------------------*/
-const signup = async (req, res) => {
-
-    try {
-
-        const {
-            name,
-            email,
-            password,
-            company_name,
-            sector,
-            industry
-        } = req.body;
-
-        if (
-            !name ||
-            !email ||
-            !password ||
-            !company_name ||
-            !sector ||
-            !industry 
-        ) {
-
-            return res.status(400).json({
-                message: "All fields are required"
-            });
-        }
-
-        const existingUser = await User.getUserByEmail(email);
-
-        if (existingUser && existingUser.length > 0) {
-
-            return res.status(400).json({
-                message: "User already exists"
-            });
-        }
-
-        const newUser = await User.createUser(
-            name,
-            email,
-            password,
-            company_name,
-            sector,
-            industry
-        );
-
-        const token = jwt.sign(
-            {
-                userId: newUser.insertId
-            },
-            process.env.JWT_SECRET,
-            {
-                expiresIn: "1h"
-            }
-        );
-
-        res.status(201).json({
-            message: "User registered successfully",
-            token
-        });
-
-    } catch (err) {
-
-        console.log(err);
-
-        res.status(500).json({
-            message: "Database error"
-        });
-    }
-};
-
-/*--------------------------------------------------------------
     Login function with user_name or personal_email
 --------------------------------------------------------------*/
 const login = async (req, res) => {
@@ -1017,10 +944,122 @@ const FetchFunction = async (req, res) => {
     }
 };
 
+const checkReferral = async (req, res) => {
+    try {
+        const { referral_code } = req.body;
+        if (!referral_code) {
+            return res.status(400).json({ valid: false, message: "referral_code is required" });
+        }
+        const referrer = await User.validateReferral(referral_code);
+        if (!referrer || referrer.length === 0) {
+            return res.status(200).json({ valid: false, message: "Invalid referral code" });
+        }
+        return res.status(200).json({
+            valid: true,
+            referred_by: {
+                member_id: referrer[0].member_id,
+                name: `${referrer[0].first_name} ${referrer[0].last_name}`.trim()
+            }
+        });
+    } catch (error) {
+        console.error("Error validating referral:", error);
+        res.status(500).json({ valid: false, message: "Database error" });
+    }
+};
+
+const signupRequest = async (req, res) => {
+    try {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const { full_name, email, company_name, industry, country } = req.body;
+
+        if (!full_name || !email || !company_name || !industry || !country) {
+            return res.status(400).json({ success: false, message: "All fields are required" });
+        }
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({ success: false, message: "Invalid email format" });
+        }
+
+        const existing = await User.getUserByEmail(email);
+        if (existing && existing.length > 0) {
+            return res.status(400).json({ success: false, message: "User already exists" });
+        }
+
+        const result = await User.createSignupRequest(full_name, email, company_name, industry, country);
+
+        try {
+            await transporter.sendMail({
+                from: `"Industry & People" <${process.env.EMAIL_USER}>`,
+                to: "aman.tripathi@logzerotechnologies.com",
+                subject: "New Signup Request",
+                html: `<h3>New Signup Request</h3>
+                    <p><b>Name:</b> ${full_name}</p>
+                    <p><b>Email:</b> ${email}</p>
+                    <p><b>Company:</b> ${company_name}</p>
+                    <p><b>Industry:</b> ${industry}</p>
+                    <p><b>Country:</b> ${country}</p>`
+            });
+        } catch (emailError) {
+            console.error("Email Error:", emailError);
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Your request has been submitted and is pending admin approval",
+            data: result
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+const signup = async (req, res) => {
+    try {
+        const { name, email, password, company_name, sector, industry, referral_code } = req.body;
+
+        if (!name || !email || !password || !company_name || !sector || !industry) {
+            return res.status(400).json({ message: "All fields are required" });
+        }
+
+        if (!referral_code) {
+            return res.status(403).json({ message: "A valid referral is required to sign up directly" });
+        }
+
+        const referrer = await User.validateReferral(referral_code);
+        if (!referrer || referrer.length === 0) {
+            return res.status(400).json({ message: "Invalid referral code" });
+        }
+
+        const existingUser = await User.getUserByEmail(email);
+        if (existingUser && existingUser.length > 0) {
+            return res.status(400).json({ message: "User already exists" });
+        }
+
+        const newUser = await User.createUser(
+            name,
+            email,
+            password,
+            company_name,
+            sector,
+            industry,
+            referrer[0].member_id   // <-- added: pass the validated referrer's member_id
+        );
+
+        const token = jwt.sign({ userId: newUser.insertId }, process.env.JWT_SECRET, { expiresIn: "1h" });
+
+        res.status(201).json({ message: "User registered successfully", token });
+
+    } catch (err) {
+        console.log(err);
+        res.status(500).json({ message: "Database error" });
+    }
+};
 /*--------------------------------------------------------------
     Export the function separately 
 --------------------------------------------------------------*/
 module.exports = { 
+    checkReferral,
+    signupRequest,
     signup,
     login,
     membership_Request,

@@ -1,10 +1,13 @@
 const express = require("express");
 const router = express.Router();
-const { signup, login, membership_Request,update_UserData,user_detail, getCompanyEmployees,fetchUsers,HighestEducation,getStates,WorkStatus,PrimaryProfession,TotalWorkEx,SeniorityLevel,WorkExCurrentCompany,BusinessModel,CompanyRevenue,CompanyType,FetchYears,FetchHouseholdIncome,FetchEmployementStatus,FetchDepartment,FetchFunction} = require("../controllers/userController");  // Import both functions
+const { signup, login, membership_Request,update_UserData,user_detail, getCompanyEmployees,fetchUsers,HighestEducation,getStates,WorkStatus,PrimaryProfession,TotalWorkEx,SeniorityLevel,WorkExCurrentCompany,BusinessModel,CompanyRevenue,CompanyType,FetchYears,FetchHouseholdIncome,FetchEmployementStatus,FetchDepartment,FetchFunction, checkReferral,signupRequest} = require("../controllers/userController");  // Import both functions
 const { authMiddleware } = require("../middlewares/authMiddleware");  // Import authMiddleware
 
 // Signup Route
-router.post("/signup", signup);
+// router.post("/signup", signup);
+router.post("/check-referral", checkReferral);     // frontend calls this first to decide which form to show
+router.post("/signup", signup);                    // referral path — creates account immediately
+router.post("/signup-request", signupRequest);     // no referral — goes to pending queue
 
 // Login Route
 router.post("/login", login);    // Use `/login` for authentication

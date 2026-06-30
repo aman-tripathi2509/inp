@@ -10,6 +10,7 @@ const referRoutes=require("../routes/referRoutes");
 const autoSuggestRoutes=require("../routes/autoSuggestRoutes"); // api to fetch the auto-suggest data
 const dataSuggest =require("../routes/dataSuggestRoutes");
 const employeeFeedback=require('../routes/employeeFeedbackRoutes');
+const globalRoutes = require('../routes/globalRoutes');
 module.exports = function (app) {
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
@@ -25,5 +26,6 @@ module.exports = function (app) {
     app.use('/api/refer',referRoutes);
     app.use('/api',dataSuggest);
     app.use('/api',employeeFeedback);
+    app.use("/api/global", globalRoutes);
 };
  
