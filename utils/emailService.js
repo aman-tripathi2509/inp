@@ -1,115 +1,56 @@
-// const nodemailer = require("nodemailer");
-// require("dotenv").config();
-
-// const transporter = nodemailer.createTransport({
-//     host: "smtp-relay.sendinblue.com",
-//     port: 587,
-//     secure: false,
-//     auth: {
-//         user: process.env.SMTP_USER,
-//         pass: process.env.SMTP_PASS
-//     },
-//     tls: {
-//         rejectUnauthorized: false
-//     }
-// });
-
-// const sendEmail = async (to, subject, html) => {
-//     return transporter.sendMail({
-//         from: '"CSMT" <aman.tripathi@logzerotechnologies.com>',
-//         to,
-//         subject,
-//         html
-//     });
-// };
-
-// module.exports = sendEmail;
-
 const axios = require("axios");
 require("dotenv").config();
 
-/*--------------------------------------------------------------
-    SEND EMAIL (BREVO API - SAME AS PHP)
---------------------------------------------------------------*/
-const sendEmail = async ({
-    to,
-    subject,
-    content,
-    cc = [],
-    bcc = [],
-    attachments = [],
-    type = "html"
-}) => {
+const sendEmail = async ({ to, subject, content }) => {
     try {
+        console.log("=================================");
+        console.log("📤 EMAIL SERVICE START");
 
-        // ✅ Check config
+        console.log("EMAIL_STATUS:", process.env.EMAIL_STATUS);
+
+        // ✅ Check toggle
         if (process.env.EMAIL_STATUS !== "1") {
+            console.log("❌ Email service disabled from ENV");
             return {
                 status: false,
-                error: "Email service is disabled"
+                error: "Email disabled"
             };
         }
 
-        const data = {
-            sender: {
-                name: process.env.APP_NAME,
-                email: process.env.SMTP_USER
-            },
-            to: [
-                {
-                    email: String(to).trim()
-                }
-            ],
+        if (!to) {
+            console.log("❌ No recipient email");
+            return {
+                status: false,
+                error: "Missing email"
+            };
+        }
+
+        const payload = {
+            mailTo: String(to).trim(),
+            mailFrom: process.env.MAIL_FROM,
+            replyTo: process.env.MAIL_REPLY_TO,
+            bodyContent: content,
             subject: subject,
-            htmlContent: content
+            projectName: process.env.MAIL_PROJECT_NAME
         };
 
-        // ✅ Content type
-        if (type === "html") {
-            data.htmlContent = content;
-        } else {
-            data.textContent = content.replace(/<[^>]*>/g, '');
-        }
+        console.log("📦 Payload:", payload);
 
-        // ✅ CC
-        if (cc.length > 0) {
-            data.cc = cc.map(email => ({ email }));
-        }
-
-        // ✅ BCC
-        if (bcc.length > 0) {
-            data.bcc = bcc.map(email => ({ email }));
-        }
-
-        // ✅ Attachments
-        if (attachments.length > 0) {
-            const fs = require("fs");
-            data.attachment = [];
-
-            for (let filePath of attachments) {
-                if (fs.existsSync(filePath)) {
-                    data.attachment.push({
-                        name: require("path").basename(filePath),
-                        content: fs.readFileSync(filePath).toString("base64")
-                    });
-                }
-            }
-        }
-
-        // ✅ API Call
         const response = await axios.post(
-            process.env.BREVO_MAIL_API_URL,
-            data,
+            process.env.MAIL_API_URL,
+            payload,
             {
                 headers: {
                     "accept": "application/json",
-                    "api-key": process.env.BREVO_MAIL_API_KEY,
-                    "content-type": "application/json"
-                }
+                    "X-API-Key": process.env.MAIL_API_KEY,
+                    "Content-Type": "application/json"
+                },
+                timeout: 10000
             }
         );
 
-        console.log("✅ Mail sent via API");
+        console.log("✅ MAIL API RESPONSE:", response.data);
+        console.log("=================================");
 
         return {
             status: true,
@@ -117,7 +58,15 @@ const sendEmail = async ({
         };
 
     } catch (error) {
-        console.error("❌ API MAIL ERROR:", error.response?.data || error.message);
+        console.log("=================================");
+        console.error("❌ MAIL FAILED");
+
+        console.error("STATUS:", error.response?.status);
+        console.error("DATA:", error.response?.data);
+        console.error("HEADERS:", error.response?.headers);
+        console.error("MESSAGE:", error.message);
+
+        console.log("=================================");
 
         return {
             status: false,

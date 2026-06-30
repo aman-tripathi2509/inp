@@ -1,33 +1,111 @@
-const contact = require("../models/contactModel");
+const Contact = require("../models/contactModel");
+const sendEmail = require("../utils/emailService");
 
 const contactController = async (req, res) => {
+
     try {
-        //const {name,email,phone_no,contact_method,message} = req.body;//for sectors questions
-        const { name, email, phone_no, contact_method, message } = req.body;
 
-        if (!name || !email || !phone_no || !contact_method || !message) {
-            return res.status(400).json({ error: "All fields are required." });
+        const {
+            name,
+            email,
+            phone_no,
+            contact_method,
+            message
+        } = req.body;
+
+        if (
+            !name ||
+            !email ||
+            !phone_no ||
+            !contact_method ||
+            !message
+        ) {
+
+            return res.status(400).json({
+                success: false,
+                message: "All fields are required."
+            });
+
         }
-        //console.log(req.body);
-        // Regular expressions for validation
-            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;  // Simple email format check
-            const phoneRegex = /^\d{10,12}$/; // Checks for a 10-digit phone number
 
-            if (!emailRegex.test(email)) {
-                return res.status(400).json({ error: "Invalid email format" });
-            }
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-            if (!phoneRegex.test(phone_no)) {
-                return res.status(400).json({ error: "Invalid phone number format." });
-            }
-         const allSectors = await contact.storeDetails(req.body);
-        // Return the fetched sectors instead of the error message
-        res.status(200).json({ message: "Thank you for reaching out to us! Your message has been successfully submitted. We will get back to you soon." });
+        const phoneRegex = /^[0-9]{10,15}$/;
+
+        if (!emailRegex.test(email)) {
+
+            return res.status(400).json({
+                success: false,
+                message: "Invalid email address."
+            });
+
+        }
+
+        if (!phoneRegex.test(phone_no)) {
+
+            return res.status(400).json({
+                success: false,
+                message: "Invalid phone number."
+            });
+
+        }
+
+        await Contact.storeDetails(req.body);
+
+        await sendEmail({
+
+            to: email,
+
+            subject: "Thank You for Contacting Industry & People",
+
+            content: `
+                <p>Dear <b>${name}</b>,</p>
+
+                <p>
+                    Thank you for contacting
+                    <b>Industry & People</b>.
+                </p>
+
+                <p>
+                    We have received your message successfully.
+                    Our team will contact you shortly.
+                </p>
+
+                <br>
+
+                <p>Regards,</p>
+
+                <p><b>Industry & People Team</b></p>
+            `
+
+        });
+
+        return res.status(200).json({
+
+            success: true,
+
+            message:
+                "Thank you for reaching out to us! Your message has been successfully submitted."
+
+        });
+
     }
     catch (error) {
-        console.error('Error', error);
-        res.status(500).json({ message: "oops! something went wrong." });
-    }
-}
 
-module.exports = contactController;
+        console.error(error);
+
+        return res.status(500).json({
+
+            success: false,
+
+            message: "Oops! Something went wrong."
+
+        });
+
+    }
+
+};
+
+module.exports = {
+    contactController
+};
