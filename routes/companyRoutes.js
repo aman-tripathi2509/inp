@@ -14,7 +14,7 @@ router.post("/all-companies",authMiddleware, getAllCompanies);
 router.post("/all-feedbacks",authMiddleware, getCompanyAverageRatings);
 
 // company feedback 
-router.post("/fetch-companyNames",authMiddleware, fetchCompanyNames);
+router.post("/fetch-companyNames", fetchCompanyNames);
 
 // company feedback 
 router.post("/globalSearch",authMiddleware, globalSearchController);

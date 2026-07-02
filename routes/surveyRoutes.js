@@ -25,7 +25,8 @@ const {
     getMyDeletedSurveys,
     getSurveyDetails,
     getSurveyQuestions,
-    deleteSurveyResponse
+    deleteSurveyResponse,
+    previewSubmittedSurvey
 } = require("../controllers/surveyController");
 
 const {
@@ -119,6 +120,12 @@ router.post(
     submitSurvey
 );
 
+router.get(
+    "/preview-submitted-survey/:survey_id",
+    authMiddleware,
+    previewSubmittedSurvey
+);
+
 // Delete submitted survey response and selected options
 router.delete(
     "/survey-response/:response_id",
@@ -184,7 +191,6 @@ router.post(
 // Countries
 router.post(
     "/countries",
-    authMiddleware,
     get_Countries
 );
 
@@ -192,7 +198,6 @@ router.post(
 // Sectors
 router.post(
     "/sectors",
-    authMiddleware,
     getSectors
 );
 
@@ -214,7 +219,6 @@ router.post(
 // Industries
 router.post(
     "/industries",
-    authMiddleware,
     getIndustries
 );
 

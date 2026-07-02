@@ -642,27 +642,43 @@ const PrimaryProfession = async (req, res) => {
 --------------------------------------------------------------*/
 const getStates = async (req, res) => {
     try {
+
         const { country_id } = req.body;
-        // Validation
+
         if (!country_id) {
             return res.status(400).json({
                 message: "country_id is required in request body"
             });
         }
-        // Fetch states
-        const states = await User.getStatesByCountryId(country_id);
+
+        let countryIds;
+
+        try {
+            countryIds = Array.isArray(country_id)
+                ? country_id
+                : JSON.parse(country_id);
+        } catch {
+            countryIds = [country_id];
+        }
+
+        const states = await User.getStatesByCountryId(countryIds);
+
         if (!states || states.length === 0) {
             return res.status(404).json({
-                message: `No states found for country_id ${country_id}`
+                message: "No states found"
             });
         }
-        res.status(200).json({
+
+        return res.status(200).json({
             message: "States fetched successfully",
             data: states
         });
+
     } catch (error) {
+
         console.error("Error fetching states:", error);
-        res.status(500).json({
+
+        return res.status(500).json({
             message: "Internal server error",
             error: error.message
         });

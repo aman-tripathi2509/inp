@@ -2,6 +2,59 @@ const Survey = require("../models/surveyModel");
 
 const fileUrl = (file) => `/uploads/surveys/${file.filename}`;
 
+const parseMultiSelect = (value) => {
+    if (!value) return "";
+
+    try {
+        return JSON.parse(value).join(",");
+    } catch (err) {
+        return value;
+    }
+};
+
+const getAgeRange = (value) => {
+
+    if (!value) {
+        return {
+            min_age: null,
+            max_age: null
+        };
+    }
+
+    let ageGroups = [];
+
+    try {
+        ageGroups = JSON.parse(value);
+    } catch {
+        ageGroups = Array.isArray(value) ? value : [value];
+    }
+
+    let minAge = Number.MAX_SAFE_INTEGER;
+    let maxAge = 0;
+
+    ageGroups.forEach(group => {
+
+        if (group === "60+") {
+
+            minAge = Math.min(minAge, 60);
+            maxAge = Math.max(maxAge, 100);
+
+        } else {
+
+            const [min, max] = group.split("-").map(Number);
+
+            minAge = Math.min(minAge, min);
+            maxAge = Math.max(maxAge, max);
+        }
+
+    });
+
+    return {
+        min_age: minAge,
+        max_age: maxAge
+    };
+};
+
 const parseJsonField = (value, fallback) => {
     if (typeof value !== "string") {
         return value ?? fallback;
@@ -209,8 +262,7 @@ const saveSurveyDetails = async (req, res) => {
             survey_image,
             start_date,
             end_date,
-            min_age,
-            max_age,
+            age_groups,
             gender,
             target_responses,
             reward_per_participant,
@@ -233,26 +285,27 @@ const saveSurveyDetails = async (req, res) => {
             });
         }
 
-        const result =
-            await Survey.createSurveyDetails(
-                member_id,
-                {
-                    survey_title,
-                    survey_description,
-                    survey_image: uploadedSurveyImage || survey_image,
-                    start_date,
-                    end_date,
-                    min_age,
-                    max_age,
-                    gender,
-                    target_responses,
-                    reward_per_participant,
-                    sector,
-                    industry,
-                    country,
-                    state
-                }
-            );
+        const ageRange = getAgeRange(age_groups);
+        const result = await Survey.createSurveyDetails(
+            member_id,
+            {
+                survey_title,
+                survey_description,
+                survey_image: uploadedSurveyImage || survey_image,
+                start_date,
+                end_date,
+                min_age: ageRange.min_age,
+                max_age: ageRange.max_age,
+                gender: parseMultiSelect(gender),
+                target_responses,
+                reward_per_participant,
+
+                sector: parseMultiSelect(sector),
+                industry: parseMultiSelect(industry),
+                country: parseMultiSelect(country),
+                state: parseMultiSelect(state)
+            }
+        );
 
         return res.status(201).json({
             success: true,
@@ -770,6 +823,47 @@ const submitSurvey = async (req, res) => {
     }
 };
 
+const previewSubmittedSurvey = async (req, res) => {
+
+    try {
+
+        const survey_id = Number(req.params.survey_id);
+
+        if (
+            !Number.isInteger(survey_id) ||
+            survey_id <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid survey_id is required"
+            });
+        }
+
+        const result = await Survey.previewSubmittedSurvey(
+            survey_id,
+            req.user.member_id
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Survey preview fetched successfully",
+            data: result
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        return res.status(error.statusCode || 500).json({
+            success: false,
+            message:
+                error.statusCode
+                    ? error.message
+                    : "Internal Server Error"
+        });
+    }
+};
+
 const deleteSurveyResponse = async (req, res) => {
 
     try {
@@ -848,13 +942,19 @@ const getIndustries = async (req, res) => {
     try {
 
         const { sector_id } = req.body;
-        if (!sector_id) {
+
+        if (!sector_id || sector_id.length === 0) {
             return res.status(400).json({
                 success: false,
-                message: "sector_id is required in request body"
+                message: "sector_id is required"
             });
         }
-        const industries = await Survey.getIndustries(69, sector_id);
+
+        const sectorIds = Array.isArray(sector_id)
+            ? sector_id
+            : [sector_id];
+
+        const industries = await Survey.getIndustries(69, sectorIds);
 
         return res.status(200).json({
             success: true,
@@ -1028,7 +1128,8 @@ const getSurveyQuestions = async (req, res) => {
 
 }
 
-module.exports = {saveSurveyDetails,
+module.exports = {
+    saveSurveyDetails,
     updateSurveyDetails,
     saveSurveyQuestions,
     previewSurvey,
@@ -1039,12 +1140,18 @@ module.exports = {saveSurveyDetails,
     getAvailableSurveys,
     getSurveyForMeDetails,
     submitSurvey,
+    previewSubmittedSurvey,
     getSectors,
     getMyActiveSurveys,
     getMyDraftSurveys,
     getMyClosedSurveys,
     getMyDeletedSurveys,
-     getSectorIndustryHierarchy, get_Countries, get_CompanySize, get_CompanyRevenue, getIndustries,
+    getSectorIndustryHierarchy,
+    get_Countries,
+    get_CompanySize,
+    get_CompanyRevenue,
+    getIndustries,
     getSurveyDetails,
-getSurveyQuestions,
-deleteSurveyResponse};
+    getSurveyQuestions,
+    deleteSurveyResponse
+    };

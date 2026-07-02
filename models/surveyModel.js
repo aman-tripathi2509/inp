@@ -1190,6 +1190,109 @@ const submitSurvey = async (
     }
 };
 
+const previewSubmittedSurvey = async (
+    survey_id,
+    member_id
+) => {
+
+    let connection;
+
+    try {
+
+        connection = await db.getConnection();
+
+        const [rows] = await connection.query(
+            `
+            SELECT
+                q.id AS question_id,
+                q.question_text,
+                q.question_type,
+                q.question_order,
+                q.question_image,
+
+                r.answer,
+
+                o.id AS option_id,
+                o.option_text
+
+            FROM inp_survey_response r
+
+            INNER JOIN inp_survey_question q
+                ON q.id = r.question_id
+
+            LEFT JOIN inp_survey_response_option ro
+                ON ro.response_id = r.id
+
+            LEFT JOIN inp_survey_question_option o
+                ON o.id = ro.option_id
+
+            WHERE
+                r.survey_id = ?
+                AND r.member_id = ?
+
+            ORDER BY
+                q.question_order,
+                o.id
+            `,
+            [
+                survey_id,
+                member_id
+            ]
+        );
+
+        if (!rows.length) {
+
+            const error = new Error(
+                "Survey response not found"
+            );
+
+            error.statusCode = 404;
+
+            throw error;
+        }
+
+        const questions = [];
+        const questionMap = new Map();
+
+        for (const row of rows) {
+
+            if (!questionMap.has(row.question_id)) {
+
+                questionMap.set(row.question_id, {
+                    question_id: row.question_id,
+                    question_text: row.question_text,
+                    question_type: row.question_type,
+                    question_image: row.question_image,
+                    answer: row.answer,
+                    selected_options: []
+                });
+
+                questions.push(
+                    questionMap.get(row.question_id)
+                );
+            }
+
+            if (row.option_id !== null) {
+
+                questionMap
+                    .get(row.question_id)
+                    .selected_options.push({
+                        option_id: row.option_id,
+                        option_text: row.option_text
+                    });
+            }
+        }
+
+        return questions;
+
+    } finally {
+
+        if (connection) {
+            connection.release();
+        }
+    }
+};
+
 const deleteSurveyResponse = async (
     response_id,
     member_id
@@ -1389,19 +1492,34 @@ const getSectors = async (question_id) => {
  * Fetch Industries (question_id = 69)
  * Each Industry belongs to a Sector via parent_answer_id
  */
-const getIndustries = async (question_id, parent_answer_id) => {
+const getIndustries = async (question_id, parent_answer_ids) => {
     try {
+
+        const placeholders = parent_answer_ids
+            .map(() => "?")
+            .join(",");
+
         const query = `
-            SELECT question_answer_id, answer, parent_answer_id
-            FROM lu_question_answer 
-            WHERE question_id = ? 
-              AND parent_answer_id = ? 
-              AND status = 1
+            SELECT
+                question_answer_id,
+                answer,
+                parent_answer_id
+            FROM lu_question_answer
+            WHERE question_id = ?
+            AND parent_answer_id IN (${placeholders})
+            AND status = 1
+            ORDER BY parent_answer_id ASC, answer ASC
         `;
-        const [rows] = await db.query(query, [question_id, parent_answer_id]);
+
+        const [rows] = await db.query(
+            query,
+            [question_id, ...parent_answer_ids]
+        );
+
         return rows;
+
     } catch (error) {
-        console.error('Error fetching industries:', error);
+        console.error("Error fetching industries:", error);
         throw error;
     }
 };
@@ -1465,7 +1583,8 @@ const getCountries = async () => {
     }
 }
 
-module.exports = {createSurveyDetails,
+module.exports = {
+    createSurveyDetails,
     updateSurveyDetails,
     saveSurveyQuestions,
     getSurveyPreview,
@@ -1480,5 +1599,13 @@ module.exports = {createSurveyDetails,
     getAvailableSurveys,
     getSurveyForMeDetails,
     submitSurvey,
-     getSectors, getIndustries,getSubIndustries, getCountries, getCompanySize, getCompanyRevenue,
-    getSurveyDetails, getSurveyQuestions, deleteSurveyResponse};
+    previewSubmittedSurvey,
+    getSectors,
+    getIndustries,
+    getSubIndustries,
+    getCountries,
+    getCompanySize,
+    getCompanyRevenue,
+    getSurveyDetails,
+    getSurveyQuestions,
+    deleteSurveyResponse};

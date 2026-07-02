@@ -255,7 +255,7 @@ const CompanyAverageRatings = async (companyId) => {
 const getCompanyName = async () => {
     try {
         const sql = `
-            SELECT company_name 
+            SELECT company_id,company_name 
             FROM trx_company_registration
             ORDER BY company_id ASC
         `;

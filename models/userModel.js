@@ -830,16 +830,30 @@ const getWorkExInCurrentCompany = async () => {
 /*--------------------------------------------------------------
     Function to fetch State by Country ID
 --------------------------------------------------------------*/
-const getStatesByCountryId = async (countryId) => {
+const getStatesByCountryId = async (countryIds) => {
     try {
+
+        const placeholders = countryIds
+            .map(() => "?")
+            .join(",");
+
         const sql = `
-            SELECT state_name
+            SELECT
+                state_id,
+                state_name,
+                country_id
             FROM trx_state
-            WHERE country_id = ?
-            ORDER BY state_name ASC
+            WHERE country_id IN (${placeholders})
+            ORDER BY country_id ASC, state_name ASC
         `;
-        const [rows] = await db.query(sql, [countryId]);
+
+        const [rows] = await db.query(
+            sql,
+            countryIds
+        );
+
         return rows;
+
     } catch (error) {
         throw error;
     }
