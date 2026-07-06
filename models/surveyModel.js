@@ -261,60 +261,110 @@ const saveSurveyQuestions = async (
     }
 };
 
-const getSurveyPreview = async (
-    survey_id
-) => {
+const getSurveyPreview = async (survey_id) => {
 
-    const [surveyRows] =
-        await db.query(
-            `
-            SELECT *
-            FROM inp_survey
-            WHERE id=?
-            `,
-            [survey_id]
-        );
+    const [surveyRows] = await db.query(
+        `
+        SELECT
+            s.id,
+            s.member_id,
+            s.survey_title,
+            s.survey_description,
+            s.survey_image,
+            s.start_date,
+            s.end_date,
+            s.min_age,
+            s.max_age,
 
-    const survey =
-        surveyRows[0];
+            (
+                SELECT GROUP_CONCAT(g.gender_name SEPARATOR ', ')
+                FROM
+                (
+                    SELECT 1 AS id, 'Male' AS gender_name
+                    UNION ALL
+                    SELECT 2, 'Female'
+                    UNION ALL
+                    SELECT 3, 'Others'
+                ) g
+                WHERE FIND_IN_SET(g.id, s.gender)
+            ) AS gender,
 
-    const [questions] =
-        await db.query(
-            `
-            SELECT *
-            FROM inp_survey_question
-            WHERE survey_id=?
-            ORDER BY question_order
-            `,
-            [survey_id]
-        );
+            s.target_responses,
+            s.reward_per_participant,
+
+            (
+                SELECT GROUP_CONCAT(answer ORDER BY answer SEPARATOR ', ')
+                FROM lu_question_answer
+                WHERE FIND_IN_SET(question_answer_id, s.sector)
+            ) AS sector,
+
+            (
+                SELECT GROUP_CONCAT(answer ORDER BY answer SEPARATOR ', ')
+                FROM lu_question_answer
+                WHERE FIND_IN_SET(question_answer_id, s.industry)
+            ) AS industry,
+
+            (
+                SELECT GROUP_CONCAT(country_name ORDER BY country_name SEPARATOR ', ')
+                FROM country
+                WHERE FIND_IN_SET(id, s.country)
+            ) AS country,
+
+            (
+                SELECT GROUP_CONCAT(state_name ORDER BY state_name SEPARATOR ', ')
+                FROM trx_state
+                WHERE FIND_IN_SET(state_id, s.state)
+            ) AS state,
+
+            s.status,
+            s.created_on,
+            s.updated_on
+
+        FROM inp_survey s
+        WHERE s.id = ?
+        `,
+        [survey_id]
+    );
+
+    const survey = surveyRows[0];
+
+    if (!survey) {
+        throw new Error("Survey not found");
+    }
+
+    const [questions] = await db.query(
+        `
+        SELECT *
+        FROM inp_survey_question
+        WHERE survey_id = ?
+        ORDER BY question_order
+        `,
+        [survey_id]
+    );
 
     for (const question of questions) {
 
-        const [options] =
-            await db.query(
-                `
-                SELECT *
-                FROM inp_survey_question_option
-                WHERE question_id=?
-                ORDER BY option_order
-                `,
-                [question.id]
-            );
+        const [options] = await db.query(
+            `
+            SELECT *
+            FROM inp_survey_question_option
+            WHERE question_id = ?
+            ORDER BY option_order
+            `,
+            [question.id]
+        );
 
-        question.options =
-            options;
+        question.options = options;
     }
 
-    const [tags] =
-        await db.query(
-            `
-            SELECT tag_name
-            FROM inp_survey_tags
-            WHERE survey_id=?
-            `,
-            [survey_id]
-        );
+    const [tags] = await db.query(
+        `
+        SELECT tag_name
+        FROM inp_survey_tags
+        WHERE survey_id = ?
+        `,
+        [survey_id]
+    );
 
     return {
         survey,
@@ -374,117 +424,250 @@ const archiveSurvey = async (survey_id) => {
     };
 };
 
+const saveSurvey = async (member_id, survey_id) => {
 
-const getMySurveys = async (member_id, status = null) => {
+    const [[survey]] = await db.query(
+        `
+        SELECT id
+        FROM inp_survey
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [survey_id]
+    );
 
-    try {
-
-        // Get counts
-        const countQuery = `
-            SELECT
-                COUNT(*) AS all_surveys,
-                SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS active_surveys,
-                SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS completed_surveys,
-                SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS draft_surveys
-            FROM inp_survey
-            WHERE member_id = ?
-              AND status != 3
-        `;
-
-        const [[counts]] = await db.query(countQuery, [member_id]);
-
-        // Get survey listing
-        let surveyQuery = `
-            SELECT *
-            FROM inp_survey
-            WHERE member_id = ?
-        `;
-
-        const params = [member_id];
-
-        if (status !== null) {
-            surveyQuery += ` AND status = ?`;
-            params.push(status);
-        }
-
-        surveyQuery += ` ORDER BY id DESC`;
-
-        const [surveys] = await db.query(surveyQuery, params);
-
-        return {
-            counts,
-            surveys
-        };
-
-    } catch (error) {
-        throw error;
+    if (!survey) {
+        throw new Error("Survey not found");
     }
+
+    const [[alreadySaved]] = await db.query(
+        `
+        SELECT id
+        FROM inp_saved_survey
+        WHERE member_id = ?
+          AND survey_id = ?
+        LIMIT 1
+        `,
+        [member_id, survey_id]
+    );
+
+    if (alreadySaved) {
+        throw new Error("Survey already saved");
+    }
+
+    const [result] = await db.query(
+        `
+        INSERT INTO inp_saved_survey
+        (
+            member_id,
+            survey_id
+        )
+        VALUES
+        (?, ?)
+        `,
+        [
+            member_id,
+            survey_id
+        ]
+    );
+
+    return {
+        saved_id: result.insertId,
+        survey_id
+    };
 };
 
-const getMySurveysByStatus = async (
+const getSavedSurveys = async (member_id) => {
+
+    const [rows] = await db.query(
+        `
+        SELECT
+            ss.id AS saved_id,
+            ss.created_on AS saved_on,
+
+            s.id,
+            s.survey_title,
+            s.survey_description,
+            s.survey_image,
+            s.start_date,
+            s.end_date,
+            s.reward_per_participant,
+            s.target_responses,
+            s.status
+
+        FROM inp_saved_survey ss
+
+        INNER JOIN inp_survey s
+            ON s.id = ss.survey_id
+
+        WHERE ss.member_id = ?
+
+        ORDER BY ss.created_on DESC
+        `,
+        [member_id]
+    );
+
+    return rows;
+};
+
+const removeSavedSurvey = async (member_id, survey_id) => {
+
+    const [[savedSurvey]] = await db.query(
+        `
+        SELECT id
+        FROM inp_saved_survey
+        WHERE member_id = ?
+          AND survey_id = ?
+        LIMIT 1
+        `,
+        [
+            member_id,
+            survey_id
+        ]
+    );
+
+    if (!savedSurvey) {
+        throw new Error("Saved survey not found");
+    }
+
+    await db.query(
+        `
+        DELETE
+        FROM inp_saved_survey
+        WHERE member_id = ?
+          AND survey_id = ?
+        `,
+        [
+            member_id,
+            survey_id
+        ]
+    );
+
+    return {
+        survey_id
+    };
+};
+
+const getMySurveys = async (
     member_id,
-    status,
+    status = null,
     cursor = null,
-    limit = 15
+    limit = 15,
+    search = null
 ) => {
-    const countQuery = `
+
+    // ================= Dashboard Counts =================
+
+    const [[counts]] = await db.query(
+        `
+        SELECT
+            COUNT(CASE WHEN status != 3 THEN 1 END) AS all_surveys,
+            COUNT(CASE WHEN status = 1 THEN 1 END) AS active_surveys,
+            COUNT(CASE WHEN status = 2 THEN 1 END) AS closed_surveys,
+            COUNT(CASE WHEN status = 0 THEN 1 END) AS draft_surveys,
+            COUNT(CASE WHEN status = 3 THEN 1 END) AS deleted_surveys
+        FROM inp_survey
+        WHERE member_id = ?
+        `,
+        [member_id]
+    );
+
+    // ================= Total Count =================
+
+    let countQuery = `
         SELECT COUNT(*) AS total
         FROM inp_survey
         WHERE member_id = ?
-          AND status = ?
     `;
+
+    const countParams = [member_id];
+
+    if (status !== null) {
+        countQuery += ` AND status = ?`;
+        countParams.push(status);
+    }
+
+    if (search) {
+        countQuery += ` AND survey_title LIKE ?`;
+        countParams.push(`%${search}%`);
+    }
 
     const [[countResult]] = await db.query(
         countQuery,
-        [member_id, status]
+        countParams
     );
+
+    // ================= Survey Listing =================
 
     let surveyQuery = `
         SELECT *
         FROM inp_survey
         WHERE member_id = ?
-          AND status = ?
     `;
 
-    const params = [member_id, status];
+    const surveyParams = [member_id];
+
+    if (status !== null) {
+        surveyQuery += ` AND status = ?`;
+        surveyParams.push(status);
+    }
+
+    if (search) {
+        surveyQuery += ` AND survey_title LIKE ?`;
+        surveyParams.push(`%${search}%`);
+    }
 
     if (cursor !== null) {
         surveyQuery += ` AND id < ?`;
-        params.push(cursor);
+        surveyParams.push(cursor);
     }
 
     surveyQuery += `
         ORDER BY id DESC
         LIMIT ?
     `;
-    params.push(limit + 1);
 
-    const [rows] = await db.query(surveyQuery, params);
+    surveyParams.push(limit + 1);
+
+        const [rows] = await db.query(
+        surveyQuery,
+        surveyParams
+    );
+
+    // ================= Cursor Pagination =================
+
     const hasMore = rows.length > limit;
-    const surveys = hasMore ? rows.slice(0, limit) : rows;
+
+    const surveys = hasMore
+        ? rows.slice(0, limit)
+        : rows;
+
     const nextCursor = hasMore
         ? surveys[surveys.length - 1].id
         : null;
 
+    // ================= Response =================
+
     return {
+        counts: {
+            all_surveys: Number(counts.all_surveys || 0),
+            active_surveys: Number(counts.active_surveys || 0),
+            closed_surveys: Number(counts.closed_surveys || 0),
+            draft_surveys: Number(counts.draft_surveys || 0),
+            deleted_surveys: Number(counts.deleted_surveys || 0)
+        },
+
         surveys,
+
         totalCount: Number(countResult.total || 0),
+
         hasMore,
+
         nextCursor
     };
 };
 
-const getMyActiveSurveys = (member_id, cursor = null, limit = 15) =>
-    getMySurveysByStatus(member_id, 1, cursor, limit);
 
-const getMyDraftSurveys = (member_id, cursor = null, limit = 15) =>
-    getMySurveysByStatus(member_id, 0, cursor, limit);
-
-const getMyClosedSurveys = (member_id, cursor = null, limit = 15) =>
-    getMySurveysByStatus(member_id, 2, cursor, limit);
-
-const getMyDeletedSurveys = (member_id, cursor = null, limit = 15) =>
-    getMySurveysByStatus(member_id, 3, cursor, limit);
 
 const getAvailableSurveys = async (member_id) => {
 
@@ -522,9 +705,19 @@ const getAvailableSurveys = async (member_id) => {
             FROM inp_survey
             WHERE
                 member_id != ?
-                
+
                 -- Active Survey
                 AND status = 1
+
+                -- User should not have already completed this survey
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM inp_survey_participant sp
+                    WHERE
+                        sp.survey_id = inp_survey.id
+                        AND sp.member_id = ?
+                        AND sp.status = 1
+                )
 
                 -- Age Match
                 AND (
@@ -571,7 +764,8 @@ const getAvailableSurveys = async (member_id) => {
         `;
 
         const params = [
-            member_id,
+            member_id,      // member_id != ?
+            member_id,      // participant table
             user.age,
             user.gender,
             user.country,
@@ -925,6 +1119,37 @@ const submitSurvey = async (
             );
         }
 
+        // Check if user has already completed this survey
+        const [[participant]] = await connection.query(
+            `
+            SELECT status
+            FROM inp_survey_participant
+            WHERE survey_id = ?
+            AND member_id = ?
+            LIMIT 1
+            `,
+            [survey_id, member_id]
+        );
+
+        if (participant && participant.status == 1) {
+            throw createError(
+                "You have already completed this survey.",
+                403
+            );
+        }
+
+        // Create participant record if not exists
+        await connection.query(
+            `
+            INSERT INTO inp_survey_participant
+                (survey_id, member_id, status, started_at)
+            VALUES (?, ?, 0, NOW())
+            ON DUPLICATE KEY UPDATE
+                survey_id = survey_id
+            `,
+            [survey_id, member_id]
+        );
+
         const [[question]] = await connection.query(
             `
             SELECT
@@ -1149,12 +1374,14 @@ const submitSurvey = async (
             member_id
         );
 
+
         await connection.commit();
 
         return {
             survey_id,
             question_id,
             saved: true,
+            survey_status: "in_progress",
             ...progress
         };
 
@@ -1275,6 +1502,89 @@ const previewSubmittedSurvey = async (
             connection.release();
         }
     }
+};
+
+const completeSurvey = async (survey_id, member_id) => {
+
+    let connection;
+
+    try {
+
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+
+        const [[participant]] = await connection.query(
+            `
+            SELECT status
+            FROM inp_survey_participant
+            WHERE survey_id = ?
+            AND member_id = ?
+            LIMIT 1
+            FOR UPDATE
+            `,
+            [survey_id, member_id]
+        );
+
+        if (!participant) {
+            throw createError("Survey not started", 404);
+        }
+
+        if (participant.status == 1) {
+            throw createError(
+                "Survey already completed",
+                400
+            );
+        }
+
+        const progress = await getSurveyProgress(
+            connection,
+            survey_id,
+            member_id
+        );
+
+        if (!progress.is_completed) {
+            throw createError(
+                "Please answer all required questions before submitting.",
+                400
+            );
+        }
+
+        await connection.query(
+            `
+            UPDATE inp_survey_participant
+            SET
+                status = 1,
+                completed_at = NOW()
+            WHERE
+                survey_id = ?
+                AND member_id = ?
+            `,
+            [survey_id, member_id]
+        );
+
+        await connection.commit();
+
+        return {
+            survey_id,
+            status: "completed"
+        };
+
+    } catch (error) {
+
+        if (connection) {
+            await connection.rollback();
+        }
+
+        throw error;
+
+    } finally {
+
+        if (connection) {
+            connection.release();
+        }
+
+    }
+
 };
 
 const deleteSurveyResponse = async (
@@ -1575,15 +1885,14 @@ module.exports = {
     publishSurvey,
     closeSurvey,
     archiveSurvey,
+    saveSurvey,
+    getSavedSurveys,
+    removeSavedSurvey,
     getMySurveys,
-    getMyActiveSurveys,
-    getMyDraftSurveys,
-    getMyClosedSurveys,
-    getMyDeletedSurveys,
-    getAvailableSurveys,
     getSurveyForMeDetails,
     submitSurvey,
     previewSubmittedSurvey,
+    completeSurvey,
     getSectors,
     getIndustries,
     getSubIndustries,

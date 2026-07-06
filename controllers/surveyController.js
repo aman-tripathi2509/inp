@@ -479,17 +479,26 @@ const previewSurvey = async (req, res) => {
 
         const { survey_id } = req.params;
 
+        if (!survey_id) {
+            return res.status(400).json({
+                success: false,
+                message: "survey_id is required"
+            });
+        }
+
         const result = await Survey.getSurveyPreview(survey_id);
 
         const baseUrl = `${req.protocol}://${req.get("host")}`;
 
-        // Survey Image
+        // ================= Survey Image =================
+
         if (result.survey?.survey_image) {
             result.survey.survey_image =
                 `${baseUrl}${result.survey.survey_image}`;
         }
 
-        // Question & Option Images
+        // ================= Question & Option Images =================
+
         if (Array.isArray(result.questions)) {
 
             result.questions = result.questions.map(question => {
@@ -516,18 +525,27 @@ const previewSurvey = async (req, res) => {
             });
         }
 
-        return res.json({
+        return res.status(200).json({
             success: true,
+            message: "Survey preview fetched successfully",
             data: result
         });
 
     } catch (error) {
 
-        console.error(error);
+        console.error("Preview Survey Error:", error);
+
+        if (error.message === "Survey not found") {
+            return res.status(404).json({
+                success: false,
+                message: error.message
+            });
+        }
 
         return res.status(500).json({
             success: false,
-            message: error.message
+            message: "Internal Server Error",
+            error: error.message
         });
     }
 };
@@ -640,32 +658,34 @@ const archiveSurvey = async (req, res) => {
     }
 };
 
-const getMySurveys = async (req, res) => {
+const saveSurvey = async (req, res) => {
 
     try {
 
         const member_id = req.user.member_id;
+        const { survey_id } = req.body;
 
-        const status =
-            req.query.status !== undefined
-                ? parseInt(req.query.status)
-                : null;
+        const parsedSurveyId = Number(survey_id);
 
-        const result = await Survey.getMySurveys(
+        if (
+            !Number.isInteger(parsedSurveyId) ||
+            parsedSurveyId <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid survey_id is required"
+            });
+        }
+
+        const result = await Survey.saveSurvey(
             member_id,
-            status
+            parsedSurveyId
         );
 
-        return res.status(200).json({
+        return res.status(201).json({
             success: true,
-            counts: {
-                all: Number(result.counts.all_surveys || 0),
-                active: Number(result.counts.active_surveys || 0),
-                completed: Number(result.counts.completed_surveys || 0),
-                draft: Number(result.counts.draft_surveys || 0)
-            },
-            count: result.surveys.length,
-            data: result.surveys
+            message: "Survey saved successfully",
+            data: result
         });
 
     } catch (error) {
@@ -675,6 +695,166 @@ const getMySurveys = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: error.message
+        });
+    }
+};
+
+const getSavedSurveys = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+
+        const surveys =
+            await Survey.getSavedSurveys(member_id);
+
+        return res.status(200).json({
+            success: true,
+            count: surveys.length,
+            data: surveys
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+const removeSavedSurvey = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+        const { survey_id } = req.body;
+
+        const parsedSurveyId = Number(survey_id);
+
+        if (
+            !Number.isInteger(parsedSurveyId) ||
+            parsedSurveyId <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid survey_id is required"
+            });
+        }
+
+        const result = await Survey.removeSavedSurvey(
+            member_id,
+            parsedSurveyId
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Survey removed from saved successfully",
+            data: result
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+const getMySurveys = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+
+        const status =
+            req.query.status !== undefined
+                ? Number(req.query.status)
+                : null;
+
+        const cursor =
+            req.query.cursor !== undefined
+                ? Number(req.query.cursor)
+                : null;
+
+        const limit =
+            req.query.limit !== undefined
+                ? Number(req.query.limit)
+                : 15;
+
+        const search =
+            req.query.search?.trim() || null;
+
+        if (
+            status !== null &&
+            ![0, 1, 2, 3].includes(status)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid status"
+            });
+        }
+
+        if (
+            cursor !== null &&
+            (!Number.isInteger(cursor) || cursor <= 0)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid cursor"
+            });
+        }
+
+        if (
+            !Number.isInteger(limit) ||
+            limit < 1 ||
+            limit > 50
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "limit must be between 1 and 50"
+            });
+        }
+
+        const result = await Survey.getMySurveys(
+            member_id,
+            status,
+            cursor,
+            limit,
+            search
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "My surveys fetched successfully",
+
+            counts: result.counts,
+
+            totalCount: result.totalCount,
+
+            count: result.surveys.length,
+
+            data: result.surveys,
+
+            pagination: {
+                limit,
+                nextCursor: result.nextCursor,
+                hasMore: result.hasMore
+            }
+        });
+
+    } catch (error) {
+
+        console.error("Error fetching my surveys:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal Server Error"
         });
     }
 };
@@ -869,6 +1049,45 @@ const previewSubmittedSurvey = async (req, res) => {
     }
 };
 
+const completeSurvey = async (req, res) => {
+
+    try {
+
+        const survey_id = Number(req.body.survey_id);
+
+        if (
+            !Number.isInteger(survey_id) ||
+            survey_id <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid survey_id is required"
+            });
+        }
+
+        const result =
+            await Survey.completeSurvey(
+                survey_id,
+                req.user.member_id
+            );
+
+        return res.status(200).json({
+            success: true,
+            message: "Survey submitted successfully",
+            data: result
+        });
+
+    } catch (error) {
+
+        return res.status(error.statusCode || 500).json({
+            success: false,
+            message: error.message
+        });
+
+    }
+
+};
+
 const deleteSurveyResponse = async (req, res) => {
 
     try {
@@ -977,83 +1196,6 @@ const getIndustries = async (req, res) => {
     }
 };
 
-const createMySurveyStatusHandler = (
-    modelMethod,
-    statusLabel
-) => async (req, res) => {
-    try {
-        const member_id = req.user.member_id;
-        const parsedLimit = Number.parseInt(req.query.limit, 10);
-        const parsedCursor = Number.parseInt(req.query.cursor, 10);
-        const limit = req.query.limit === undefined ? 15 : parsedLimit;
-        const cursor = req.query.cursor === undefined ? null : parsedCursor;
-
-        if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
-            return res.status(400).json({
-                success: false,
-                message: "limit must be an integer between 1 and 50"
-            });
-        }
-
-        if (
-            cursor !== null &&
-            (!Number.isInteger(cursor) || cursor < 1)
-        ) {
-            return res.status(400).json({
-                success: false,
-                message: "cursor must be a positive integer"
-            });
-        }
-
-        const result = await modelMethod(
-            member_id,
-            cursor,
-            limit
-        );
-
-        return res.status(200).json({
-            success: true,
-            message: `My ${statusLabel} surveys fetched successfully`,
-            count: result.surveys.length,
-            totalCount: result.totalCount,
-            data: result.surveys,
-            pagination: {
-                limit,
-                nextCursor: result.nextCursor,
-                hasMore: result.hasMore
-            }
-        });
-
-    } catch (error) {
-        console.error(`Error fetching my ${statusLabel} surveys:`, error);
-
-        return res.status(500).json({
-            success: false,
-            message: "Internal Server Error"
-        });
-    }
-};
-
-const getMyActiveSurveys = createMySurveyStatusHandler(
-    Survey.getMyActiveSurveys,
-    "active"
-);
-
-const getMyDraftSurveys = createMySurveyStatusHandler(
-    Survey.getMyDraftSurveys,
-    "draft"
-);
-
-const getMyClosedSurveys = createMySurveyStatusHandler(
-    Survey.getMyClosedSurveys,
-    "closed"
-);
-
-const getMyDeletedSurveys = createMySurveyStatusHandler(
-    Survey.getMyDeletedSurveys,
-    "deleted"
-);
-
 const getSurveyDetails = async (req, res) => {
 
     try {
@@ -1141,16 +1283,16 @@ module.exports = {
     publishSurvey,
     closeSurvey,
     archiveSurvey,
+    saveSurvey,
+    getSavedSurveys,
+    removeSavedSurvey,
     getMySurveys,
     getAvailableSurveys,
     getSurveyForMeDetails,
     submitSurvey,
     previewSubmittedSurvey,
+    completeSurvey,
     getSectors,
-    getMyActiveSurveys,
-    getMyDraftSurveys,
-    getMyClosedSurveys,
-    getMyDeletedSurveys,
     getSectorIndustryHierarchy,
     get_Countries,
     get_CompanySize,

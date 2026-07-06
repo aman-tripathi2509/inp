@@ -9,6 +9,9 @@ const {
     publishSurvey,
     closeSurvey,
     archiveSurvey,
+    saveSurvey,
+    getSavedSurveys,
+    removeSavedSurvey,
     getMySurveys,
     getAvailableSurveys,
     getSurveyForMeDetails,
@@ -19,14 +22,11 @@ const {
     getSectorIndustryHierarchy,
     getSectors,
     getIndustries,
-    getMyActiveSurveys,
-    getMyDraftSurveys,
-    getMyClosedSurveys,
-    getMyDeletedSurveys,
     getSurveyDetails,
     getSurveyQuestions,
     deleteSurveyResponse,
-    previewSubmittedSurvey
+    previewSubmittedSurvey,
+    completeSurvey
 } = require("../controllers/surveyController");
 
 const {
@@ -92,6 +92,24 @@ router.post(
     archiveSurvey
 );
 
+router.post(
+    "/save-survey",
+    authMiddleware,
+    saveSurvey
+);
+
+router.get(
+    "/fetch-saved-surveys",
+    authMiddleware,
+    getSavedSurveys
+);
+
+router.delete(
+    "/remove-saved-survey",
+    authMiddleware,
+    removeSavedSurvey
+);
+
 // My Surveys Listing
 router.get(
     "/my-surveys",
@@ -126,39 +144,17 @@ router.get(
     previewSubmittedSurvey
 );
 
+router.post(
+    "/complete-survey",
+    authMiddleware,
+    completeSurvey
+);
+
 // Delete submitted survey response and selected options
 router.delete(
     "/survey-response/:response_id",
     authMiddleware,
     deleteSurveyResponse
-);
-
-// Get Active Surveys of loggedIn user
-router.get(
-    "/active-surveys",
-    authMiddleware,
-    getMyActiveSurveys
-);
-
-// Get Draft Surveys of loggedIn user
-router.get(
-    "/draft-surveys",
-    authMiddleware,
-    getMyDraftSurveys
-);
-
-// Get Closed Surveys of loggedIn user
-router.get(
-    "/closed-surveys",
-    authMiddleware,
-    getMyClosedSurveys
-);
-
-// Get Deleted Surveys of loggedIn user
-router.get(
-    "/deleted-surveys",
-    authMiddleware,
-    getMyDeletedSurveys
 );
 
 // Get Survey details for loggedIn user
