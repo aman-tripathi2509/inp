@@ -772,8 +772,10 @@ const submitSurvey = async (req, res) => {
 
     try {
 
-        const { survey_id, answers } = req.body;
+        const { survey_id, question_id, answer, option_ids } = req.body;
+
         const parsedSurveyId = Number(survey_id);
+        const parsedQuestionId = Number(question_id);
 
         if (
             !Number.isInteger(parsedSurveyId) ||
@@ -786,24 +788,27 @@ const submitSurvey = async (req, res) => {
         }
 
         if (
-            !Array.isArray(answers) ||
-            answers.length === 0
+            !Number.isInteger(parsedQuestionId) ||
+            parsedQuestionId <= 0
         ) {
             return res.status(400).json({
                 success: false,
-                message: "answers must be a non-empty array"
+                message: "Valid question_id is required"
             });
         }
 
         const result = await Survey.submitSurvey(
             parsedSurveyId,
             req.user.member_id,
-            answers
+            parsedQuestionId,
+            { answer, option_ids }
         );
 
         return res.status(201).json({
             success: true,
-            message: "Survey submitted successfully",
+            message: result.saved
+                ? "Answer submitted successfully"
+                : "No answer provided for this question",
             data: result
         });
 

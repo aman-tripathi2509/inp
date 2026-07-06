@@ -756,19 +756,71 @@ const getSurveyForMeDetails = async (survey_id, member_id) => {
     };
 };
 
+const createError = (message, statusCode) => {
+    const error = new Error(message);
+    error.statusCode = statusCode;
+    return error;
+};
+
+/**
+ * Computes how many questions have been answered by this member so far,
+ * and whether every required question now has an answer.
+ * Must be called with the SAME connection/transaction used to save the answer.
+ */
+const getSurveyProgress = async (connection, survey_id, member_id) => {
+
+    const [questionRows] = await connection.query(
+        `
+        SELECT id, is_required
+        FROM inp_survey_question
+        WHERE survey_id = ?
+        `,
+        [survey_id]
+    );
+
+    const [answeredRows] = await connection.query(
+        `
+        SELECT DISTINCT question_id
+        FROM inp_survey_response
+        WHERE survey_id = ?
+            AND member_id = ?
+        `,
+        [survey_id, member_id]
+    );
+
+    const answeredIds = new Set(
+        answeredRows.map(row => row.question_id)
+    );
+
+    const requiredQuestions = questionRows.filter(
+        question => question.is_required
+    );
+
+    const isCompleted = requiredQuestions.every(
+        question => answeredIds.has(question.id)
+    );
+
+    return {
+        total_questions: questionRows.length,
+        answered_questions: answeredIds.size,
+        is_completed: isCompleted
+    };
+};
+
+/**
+ * Saves the answer for a single question of a survey.
+ * Call this once per question as the user progresses through the form.
+ *
+ * answerPayload: { answer?: string, option_ids?: number[] }
+ */
 const submitSurvey = async (
     survey_id,
     member_id,
-    answers
+    question_id,
+    answerPayload
 ) => {
 
     let connection;
-
-    const createError = (message, statusCode) => {
-        const error = new Error(message);
-        error.statusCode = statusCode;
-        return error;
-    };
 
     try {
 
@@ -873,305 +925,237 @@ const submitSurvey = async (
             );
         }
 
-        const [[existingResponse]] = await connection.query(
-            `
-            SELECT id
-            FROM inp_survey_response
-            WHERE survey_id = ?
-                AND member_id = ?
-            LIMIT 1
-            `,
-            [survey_id, member_id]
-        );
-
-        if (existingResponse) {
-            throw createError(
-                "Survey has already been submitted",
-                409
-            );
-        }
-
-        const [questionRows] = await connection.query(
+        const [[question]] = await connection.query(
             `
             SELECT
-                q.id AS question_id,
-                q.question_type,
-                q.is_required,
-                o.id AS option_id
-            FROM inp_survey_question q
-            LEFT JOIN inp_survey_question_option o
-                ON o.question_id = q.id
-            WHERE q.survey_id = ?
-            ORDER BY q.question_order ASC
+                id AS question_id,
+                question_type,
+                is_required
+            FROM inp_survey_question
+            WHERE id = ?
+                AND survey_id = ?
+            LIMIT 1
             `,
-            [survey_id]
+            [question_id, survey_id]
         );
 
-        if (questionRows.length === 0) {
+        if (!question) {
             throw createError(
-                "Survey has no questions",
+                "Question does not belong to this survey",
                 400
             );
         }
 
-        const questionMap = new Map();
+        const [optionRows] = await connection.query(
+            `
+            SELECT id AS option_id
+            FROM inp_survey_question_option
+            WHERE question_id = ?
+            `,
+            [question_id]
+        );
 
-        for (const row of questionRows) {
+        const validOptionIds = new Set(
+            optionRows.map(row => row.option_id)
+        );
 
-            if (!questionMap.has(row.question_id)) {
-                questionMap.set(row.question_id, {
-                    question_id: row.question_id,
-                    question_type: row.question_type,
-                    is_required: Boolean(row.is_required),
-                    optionIds: new Set()
-                });
-            }
+        // If this question was already answered by this member, treat this
+        // as an update (e.g. user navigated back and changed their answer)
+        // rather than rejecting the request outright.
+        const [[existingAnswer]] = await connection.query(
+            `
+            SELECT id
+            FROM inp_survey_response
+            WHERE survey_id = ?
+                AND question_id = ?
+                AND member_id = ?
+            LIMIT 1
+            `,
+            [survey_id, question_id, member_id]
+        );
 
-            if (row.option_id !== null) {
-                questionMap
-                    .get(row.question_id)
-                    .optionIds.add(row.option_id);
-            }
+        if (existingAnswer) {
+            await connection.query(
+                `DELETE FROM inp_survey_response_option WHERE response_id = ?`,
+                [existingAnswer.id]
+            );
+            await connection.query(
+                `DELETE FROM inp_survey_response WHERE id = ?`,
+                [existingAnswer.id]
+            );
         }
 
-        const submittedAnswers = new Map();
+        const textAnswer =
+            typeof answerPayload.answer === "string"
+                ? answerPayload.answer.trim()
+                : "";
 
-        for (const submittedAnswer of answers) {
+        const rawOptionIds =
+            answerPayload.option_ids === undefined
+                ? []
+                : answerPayload.option_ids;
 
-            const questionId = Number(
-                submittedAnswer.question_id
+        if (!Array.isArray(rawOptionIds)) {
+            throw createError("option_ids must be an array", 400);
+        }
+
+        const optionIds = rawOptionIds.map(Number);
+
+        if (
+            optionIds.some(
+                optionId =>
+                    !Number.isInteger(optionId) ||
+                    optionId <= 0
+            )
+        ) {
+            throw createError("Invalid option_id", 400);
+        }
+
+        const uniqueOptionIds = [...new Set(optionIds)];
+
+        if (uniqueOptionIds.length !== optionIds.length) {
+            throw createError("Duplicate option_id", 400);
+        }
+
+        let finalAnswer = null;
+
+        if (question.question_type === "open_end") {
+
+            if (uniqueOptionIds.length > 0) {
+                throw createError(
+                    "Open-ended question cannot have option_ids",
+                    400
+                );
+            }
+
+            if (!textAnswer) {
+                if (question.is_required) {
+                    throw createError("Answer is required", 400);
+                }
+            } else {
+                finalAnswer = { answer: textAnswer, optionIds: [] };
+            }
+
+        } else {
+
+            // Question types that allow an optional free-text comment
+            // alongside their selected option(s), e.g. a "rating" question
+            // with an optional "why did you rate it this way" field.
+            const commentableTypes = ["rating"];
+            const allowsComment = commentableTypes.includes(
+                question.question_type
             );
 
-            if (
-                !Number.isInteger(questionId) ||
-                questionId <= 0
-            ) {
+            if (textAnswer && !allowsComment) {
                 throw createError(
-                    "Each answer must have a valid question_id",
-                    400
-                );
-            }
-
-            if (submittedAnswers.has(questionId)) {
-                throw createError(
-                    `Duplicate answer for question_id ${questionId}`,
-                    400
-                );
-            }
-
-            const question = questionMap.get(questionId);
-
-            if (!question) {
-                throw createError(
-                    `Question ${questionId} does not belong to this survey`,
-                    400
-                );
-            }
-
-            const textAnswer =
-                typeof submittedAnswer.answer === "string"
-                    ? submittedAnswer.answer.trim()
-                    : "";
-
-            const rawOptionIds =
-                submittedAnswer.option_ids === undefined
-                    ? []
-                    : submittedAnswer.option_ids;
-
-            if (!Array.isArray(rawOptionIds)) {
-                throw createError(
-                    `option_ids must be an array for question_id ${questionId}`,
-                    400
-                );
-            }
-
-            const optionIds = rawOptionIds.map(Number);
-
-            if (
-                optionIds.some(
-                    optionId =>
-                        !Number.isInteger(optionId) ||
-                        optionId <= 0
-                )
-            ) {
-                throw createError(
-                    `Invalid option_id for question_id ${questionId}`,
-                    400
-                );
-            }
-
-            const uniqueOptionIds = [...new Set(optionIds)];
-
-            if (uniqueOptionIds.length !== optionIds.length) {
-                throw createError(
-                    `Duplicate option_id for question_id ${questionId}`,
-                    400
-                );
-            }
-
-            if (question.question_type === "open_end") {
-
-                if (uniqueOptionIds.length > 0) {
-                    throw createError(
-                        `Open-ended question ${questionId} cannot have option_ids`,
-                        400
-                    );
-                }
-
-                if (!textAnswer) {
-                    if (question.is_required) {
-                        throw createError(
-                            `Answer is required for question_id ${questionId}`,
-                            400
-                        );
-                    }
-
-                    submittedAnswers.set(questionId, null);
-                    continue;
-                }
-
-                submittedAnswers.set(questionId, {
-                    answer: textAnswer,
-                    optionIds: []
-                });
-                continue;
-            }
-
-            if (textAnswer) {
-                throw createError(
-                    `Question ${questionId} must use option_ids`,
+                    "This question must use option_ids",
                     400
                 );
             }
 
             if (uniqueOptionIds.length === 0) {
+
                 if (question.is_required) {
+                    throw createError("An option is required", 400);
+                }
+
+                // Optional question skipped for its option, but a
+                // commentable type may still carry a standalone comment.
+                if (allowsComment && textAnswer) {
+                    finalAnswer = { answer: textAnswer, optionIds: [] };
+                }
+
+            } else {
+
+                const singleOptionTypes = [
+                    "single_select",
+                    "dropdown",
+                    "rating",
+                    "yes_no",
+                    "nps"
+                ];
+
+                if (
+                    singleOptionTypes.includes(
+                        question.question_type
+                    ) &&
+                    uniqueOptionIds.length !== 1
+                ) {
                     throw createError(
-                        `An option is required for question_id ${questionId}`,
+                        "Only one option is allowed",
                         400
                     );
                 }
 
-                submittedAnswers.set(questionId, null);
-                continue;
-            }
-
-            const singleOptionTypes = [
-                "single_select",
-                "dropdown",
-                "rating",
-                "yes_no",
-                "nps"
-            ];
-
-            if (
-                singleOptionTypes.includes(
-                    question.question_type
-                ) &&
-                uniqueOptionIds.length !== 1
-            ) {
-                throw createError(
-                    `Only one option is allowed for question_id ${questionId}`,
-                    400
-                );
-            }
-
-            for (const optionId of uniqueOptionIds) {
-                if (!question.optionIds.has(optionId)) {
-                    throw createError(
-                        `Option ${optionId} does not belong to question_id ${questionId}`,
-                        400
-                    );
+                for (const optionId of uniqueOptionIds) {
+                    if (!validOptionIds.has(optionId)) {
+                        throw createError(
+                            `Option ${optionId} does not belong to this question`,
+                            400
+                        );
+                    }
                 }
-            }
 
-            submittedAnswers.set(questionId, {
-                answer: null,
-                optionIds: uniqueOptionIds
-            });
-        }
-
-        for (const question of questionMap.values()) {
-            if (
-                question.is_required &&
-                (
-                    !submittedAnswers.has(question.question_id) ||
-                    submittedAnswers.get(question.question_id) === null
-                )
-            ) {
-                throw createError(
-                    `Answer is required for question_id ${question.question_id}`,
-                    400
-                );
+                finalAnswer = {
+                    answer: allowsComment && textAnswer ? textAnswer : null,
+                    optionIds: uniqueOptionIds
+                };
             }
         }
 
-        const answerCount = [...submittedAnswers.values()]
-            .filter(submittedAnswer => submittedAnswer !== null)
-            .length;
+        // Optional question with no answer given (e.g. user skipped it) -
+        // nothing to persist, just report progress.
+        if (finalAnswer === null) {
 
-        if (answerCount === 0) {
-            throw createError(
-                "At least one answer is required",
-                400
+            const progress = await getSurveyProgress(
+                connection,
+                survey_id,
+                member_id
             );
+
+            await connection.commit();
+
+            return {
+                survey_id,
+                question_id,
+                saved: false,
+                ...progress
+            };
         }
 
-        let savedAnswers = 0;
+        const [responseResult] = await connection.query(
+            `
+            INSERT INTO inp_survey_response
+            (survey_id, question_id, member_id, answer)
+            VALUES (?, ?, ?, ?)
+            `,
+            [survey_id, question_id, member_id, finalAnswer.answer]
+        );
 
-        for (
-            const [questionId, submittedAnswer]
-            of submittedAnswers
-        ) {
-
-            if (submittedAnswer === null) {
-                continue;
-            }
-
-            const [responseResult] = await connection.query(
+        for (const optionId of finalAnswer.optionIds) {
+            await connection.query(
                 `
-                INSERT INTO inp_survey_response
-                (
-                    survey_id,
-                    question_id,
-                    member_id,
-                    answer
-                )
-                VALUES (?, ?, ?, ?)
+                INSERT INTO inp_survey_response_option
+                (response_id, option_id)
+                VALUES (?, ?)
                 `,
-                [
-                    survey_id,
-                    questionId,
-                    member_id,
-                    submittedAnswer.answer
-                ]
+                [responseResult.insertId, optionId]
             );
-
-            for (const optionId of submittedAnswer.optionIds) {
-                await connection.query(
-                    `
-                    INSERT INTO inp_survey_response_option
-                    (
-                        response_id,
-                        option_id
-                    )
-                    VALUES (?, ?)
-                    `,
-                    [
-                        responseResult.insertId,
-                        optionId
-                    ]
-                );
-            }
-
-            savedAnswers++;
         }
+
+        const progress = await getSurveyProgress(
+            connection,
+            survey_id,
+            member_id
+        );
 
         await connection.commit();
 
         return {
             survey_id,
-            submitted_answers: savedAnswers
+            question_id,
+            saved: true,
+            ...progress
         };
 
     } catch (error) {
