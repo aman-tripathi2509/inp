@@ -1,17 +1,10 @@
 const jwt = require("jsonwebtoken");
 const dotenv = require("dotenv");
 const { aesEncrypt, aesDecrypt } = require("../utils/encryption");
-const nodemailer = require("nodemailer");
+const sendEmail = require("../utils/emailService");
 const User = require("../models/userModel");
 
 dotenv.config();
-const transporter = nodemailer.createTransport({
-    service: "Gmail",
-    auth: {
-        user: process.env.EMAIL,
-        pass: process.env.PASS,
-    },
-});
 
 /*--------------------------------------------------------------
     Login function with user_name or personal_email
@@ -277,147 +270,6 @@ const updateUser = async (req, res) => {
             return res.status(400).json({ message: "No fields provided to update" });
         }
         res.status(500).json({ message: "Database error" });
-    }
-};
-
-/*--------------------------------------------------------------
-    Membership Request Controller
---------------------------------------------------------------*/
-const membership_Request = async (
-    req,
-    res
-) => {
-
-    try {
-
-        const emailRegex =
-            /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-        const {
-            full_name,
-            email,
-            company_name,
-            industry,
-            country
-        } = req.body;
-
-        if (
-            !full_name ||
-            !email ||
-            !company_name ||
-            !industry ||
-            !country
-        ) {
-
-            return res.status(400).json({
-                success: false,
-                message:
-                "All fields are required"
-            });
-        }
-
-        if (
-            !emailRegex.test(email)
-        ) {
-
-            return res.status(400).json({
-                success: false,
-                message:
-                "Invalid email format"
-            });
-        }
-
-        const result =
-            await User.membershipRequest(
-                full_name,
-                email,
-                company_name,
-                industry,
-                country
-            );
-
-        /*
-        ==========================================
-        Send Email To Admin
-        ==========================================
-        */
-
-        try {
-
-            await transporter.sendMail({
-
-                from:
-                `"Industry & People" <${process.env.EMAIL_USER}>`,
-
-                to:
-                "aman.tripathi@logzerotechnologies.com",
-
-                subject:
-                "New Membership Request",
-
-                html: `
-                    <h3>New Membership Request Received</h3>
-
-                    <table border="1" cellpadding="8" cellspacing="0">
-
-                        <tr>
-                            <td><b>Name</b></td>
-                            <td>${full_name}</td>
-                        </tr>
-
-                        <tr>
-                            <td><b>Email</b></td>
-                            <td>${email}</td>
-                        </tr>
-
-                        <tr>
-                            <td><b>Company</b></td>
-                            <td>${company_name}</td>
-                        </tr>
-
-                        <tr>
-                            <td><b>Industry</b></td>
-                            <td>${industry}</td>
-                        </tr>
-
-                        <tr>
-                            <td><b>Country</b></td>
-                            <td>${country}</td>
-                        </tr>
-
-                    </table>
-                `
-            });
-
-        } catch (emailError) {
-
-            console.error(
-                "Email Error:",
-                emailError
-            );
-        }
-
-        return res.status(200).json({
-
-            success: true,
-
-            message:
-            "Membership request submitted successfully",
-
-            data: result
-        });
-
-    } catch (error) {
-
-        console.error(error);
-
-        return res.status(500).json({
-
-            success: false,
-
-            message:
-            error.message
-        });
     }
 };
 
@@ -986,33 +838,88 @@ const checkReferral = async (req, res) => {
 const signupRequest = async (req, res) => {
     try {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        const { full_name, email, company_name, industry, country } = req.body;
 
-        if (!full_name || !email || !company_name || !industry || !country) {
-            return res.status(400).json({ success: false, message: "All fields are required" });
+        const {
+            full_name,
+            email,
+            linkedin
+        } = req.body;
+
+        if (!full_name || !email || !linkedin) {
+            return res.status(400).json({
+                success: false,
+                message: "All fields are required"
+            });
         }
+
         if (!emailRegex.test(email)) {
-            return res.status(400).json({ success: false, message: "Invalid email format" });
+            return res.status(400).json({
+                success: false,
+                message: "Invalid email format"
+            });
         }
 
+        // Check if user already exists
         const existing = await User.getUserByEmail(email);
+
         if (existing && existing.length > 0) {
-            return res.status(400).json({ success: false, message: "User already exists" });
+            return res.status(400).json({
+                success: false,
+                message: "User already exists"
+            });
         }
 
-        const result = await User.createSignupRequest(full_name, email, company_name, industry, country);
+        // Check if membership request already exists
+        const existingRequest = await User.getSignupRequestByEmail(email);
 
+        if (existingRequest.length > 0) {
+            return res.status(400).json({
+                success: false,
+                message: "You have already submitted a membership request."
+            });
+        }
+
+        const result = await User.createSignupRequest(
+            full_name,
+            email,
+            linkedin
+        );
+
+        // Send email to admin
         try {
-            await transporter.sendMail({
-                from: `"Industry & People" <${process.env.EMAIL_USER}>`,
-                to: "aman.tripathi@logzerotechnologies.com",
-                subject: "New Signup Request",
-                html: `<h3>New Signup Request</h3>
-                    <p><b>Name:</b> ${full_name}</p>
-                    <p><b>Email:</b> ${email}</p>
-                    <p><b>Company:</b> ${company_name}</p>
-                    <p><b>Industry:</b> ${industry}</p>
-                    <p><b>Country:</b> ${country}</p>`
+            await sendEmail({
+                to: process.env.ADMIN_EMAIL,
+                subject: "New Membership Request",
+                content: `
+                    <h2>New Membership Request Received</h2>
+
+                    <table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;">
+                        <tr>
+                            <td><strong>Name</strong></td>
+                            <td>${full_name}</td>
+                        </tr>
+
+                        <tr>
+                            <td><strong>Email</strong></td>
+                            <td>${email}</td>
+                        </tr>
+
+                        <tr>
+                            <td><strong>LinkedIn</strong></td>
+                            <td>
+                                <a href="${linkedin}" target="_blank">
+                                    ${linkedin}
+                                </a>
+                            </td>
+                        </tr>
+                    </table>
+
+                    <br>
+
+                    <p>
+                        A new membership request has been submitted and is waiting for review.
+                    </p>
+                `
             });
         } catch (emailError) {
             console.error("Email Error:", emailError);
@@ -1020,21 +927,70 @@ const signupRequest = async (req, res) => {
 
         return res.status(200).json({
             success: true,
-            message: "Your request has been submitted and is pending admin approval",
+            message: "Your request has been submitted successfully.",
             data: result
         });
+
     } catch (error) {
         console.error(error);
-        return res.status(500).json({ success: false, message: error.message });
+
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };
 
 const signup = async (req, res) => {
     try {
-        const { name, email, password, company_name, sector, industry, referral_code } = req.body;
+        const {
+            name,
+            email,
+            password,
 
-        if (!name || !email || !password || !company_name || !sector || !industry) {
-            return res.status(400).json({ message: "All fields are required" });
+            company_name,
+            other_company,
+
+            sector,
+            other_sector,
+
+            industry,
+            other_industry,
+
+            country,
+            other_country,
+
+            referral_code
+            } = req.body;
+
+        if (!name || !email || !password) {
+            return res.status(400).json({
+                message: "Name, Email and Password are required"
+            });
+        }
+
+        if (!company_name && !other_company) {
+            return res.status(400).json({
+                message: "Company is required"
+            });
+        }
+
+        if (!sector && !other_sector) {
+            return res.status(400).json({
+                message: "Sector is required"
+            });
+        }
+
+        if (!industry && !other_industry) {
+            return res.status(400).json({
+                message: "Industry is required"
+            });
+        }
+
+        if (!country && !other_country) {
+            return res.status(400).json({
+                message: "Country is required"
+            });
         }
 
         if (!referral_code) {
@@ -1055,10 +1011,20 @@ const signup = async (req, res) => {
             name,
             email,
             password,
+
             company_name,
+            other_company,
+
             sector,
+            other_sector,
+
             industry,
-            referrer[0].member_id   // <-- added: pass the validated referrer's member_id
+            other_industry,
+
+            country,
+            other_country,
+
+            referrer[0].member_id
         );
 
         const token = jwt.sign({ userId: newUser.insertId }, process.env.JWT_SECRET, { expiresIn: "1h" });
@@ -1078,7 +1044,6 @@ module.exports = {
     signupRequest,
     signup,
     login,
-    membership_Request,
     fetchUsers,
     update_UserData,
     user_detail,

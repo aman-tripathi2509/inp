@@ -20,14 +20,9 @@ const GlobalCompanySearch = async (page = 1, limit = 15, searchTerm = '', filter
             params.push(likeTerm, likeTerm, likeTerm, likeTerm, likeTerm);
         }
 
-        // Filters
-        if (filters.company_name) {
-            conditions.push(`c.company_name LIKE ?`);
-            params.push(`%${filters.company_name}%`);
-        }
         if (filters.company_size) {
-            conditions.push(`TRIM(hq.company_size) = ?`);
-            params.push(filters.company_size);
+            conditions.push(`TRIM(hq.company_size) LIKE ?`);
+            params.push(`%${filters.company_size.trim()}%`);
         }
         if (filters.industry) {
             conditions.push(`hq.industry LIKE ?`);
@@ -37,13 +32,13 @@ const GlobalCompanySearch = async (page = 1, limit = 15, searchTerm = '', filter
             conditions.push(`hq.company_revenue = ?`);
             params.push(filters.company_revenue);
         }
-        if (filters.business_model) {
-            conditions.push(`hq.business_model = ?`);
-            params.push(filters.business_model);
+        if (filters.company_type) {
+            conditions.push(`hq.company_type LIKE ?`);
+            params.push(`%${filters.company_type}%`);
         }
         if (filters.location) {
-            conditions.push(`(co.country_name LIKE ? OR hq.city_name LIKE ?)`);
-            params.push(`%${filters.location}%`, `%${filters.location}%`);
+            conditions.push(`hq.country_id = ?`);
+            params.push(parseInt(filters.location));
         }
 
         // If no conditions at all, return empty
@@ -57,37 +52,49 @@ const GlobalCompanySearch = async (page = 1, limit = 15, searchTerm = '', filter
         const whereClause = conditions.map(c => `(${c})`).join(' AND ');
 
         const sql = `
-            SELECT 
+            SELECT
                 c.company_id,
                 c.company_name,
-                c.company_url,
-                DATE_FORMAT(CONVERT_TZ(c.created_on, '+00:00', '+05:30'), '%Y-%m-%d') AS created_on,
-                CASE 
-                    WHEN hq.company_logo IS NOT NULL 
+                CASE
+                    WHEN hq.company_logo IS NOT NULL
                     THEN CONCAT('https://beta.caqsmt.com/public/company-logo-images/', hq.company_logo)
                     ELSE NULL
                 END AS company_logo_url,
-                COALESCE(co.country_name, 'Unknown') AS country_name,
+                COALESCE(co.country_name,'Unknown') AS country_name,
                 hq.city_name,
                 hq.industry,
                 hq.company_size,
-                hq.company_revenue,
-                hq.business_model
+                hq.company_type
             FROM trx_company_registration c
             LEFT JOIN (
-                SELECT 
+                SELECT
                     a.company_id,
                     MAX(CASE WHEN a.question_id = 38 THEN a.answer END) AS company_logo,
                     MAX(CASE WHEN a.question_id = 42 THEN TRIM(a.answer) END) AS company_size,
                     MAX(CASE WHEN a.question_id = 43 THEN a.answer END) AS industry,
-                    MAX(CASE WHEN a.question_id = 46 THEN a.answer END) AS company_revenue,
+                    MAX(CASE WHEN a.question_id = 44 THEN a.answer END) AS company_type,
                     MAX(CASE WHEN a.question_id = 45 THEN a.answer END) AS business_model,
-                    MAX(CASE WHEN a.question_id = 40 THEN SUBSTRING_INDEX(a.answer, ',', 1) END) AS country_id,
-                    MAX(CASE WHEN a.question_id = 40 THEN TRIM(SUBSTRING_INDEX(a.answer, ',', -1)) END) AS city_name
+                    MAX(
+                    CASE
+                    WHEN a.question_id = 40
+                    AND a.answer REGEXP '^[0-9]+$'
+                    AND CAST(a.answer AS UNSIGNED) BETWEEN 1 AND 250
+                    THEN CAST(a.answer AS UNSIGNED)
+                    END
+                    ) AS country_id,
+                    MAX(
+                    CASE
+                    WHEN a.question_id = 40
+                    AND a.answer NOT REGEXP '^[0-9]+$'
+                    AND a.answer NOT LIKE '%@%'
+                    AND a.answer NOT LIKE '+%'
+                    THEN a.answer
+                    END
+                    ) AS city_name
                 FROM trx_company_answer a
-                WHERE a.question_id IN (38, 40, 42, 43, 45, 46)
+                WHERE a.question_id IN (38,40,42,43,44,45)
                 GROUP BY a.company_id
-            ) AS hq ON hq.company_id = c.company_id
+            ) hq ON hq.company_id = c.company_id
             LEFT JOIN country co ON co.id = hq.country_id
             WHERE ${whereClause}
             ORDER BY c.company_id ASC
@@ -105,11 +112,27 @@ const GlobalCompanySearch = async (page = 1, limit = 15, searchTerm = '', filter
                     MAX(CASE WHEN a.question_id = 42 THEN TRIM(a.answer) END) AS company_size,
                     MAX(CASE WHEN a.question_id = 43 THEN a.answer END) AS industry,
                     MAX(CASE WHEN a.question_id = 46 THEN a.answer END) AS company_revenue,
+                    MAX(CASE WHEN a.question_id = 44 THEN a.answer END) AS company_type,
                     MAX(CASE WHEN a.question_id = 45 THEN a.answer END) AS business_model,
-                    MAX(CASE WHEN a.question_id = 40 THEN SUBSTRING_INDEX(a.answer, ',', 1) END) AS country_id,
-                    MAX(CASE WHEN a.question_id = 40 THEN TRIM(SUBSTRING_INDEX(a.answer, ',', -1)) END) AS city_name
+                    MAX(
+                    CASE
+                    WHEN a.question_id = 40
+                    AND a.answer REGEXP '^[0-9]+$'
+                    AND CAST(a.answer AS UNSIGNED) BETWEEN 1 AND 250
+                    THEN CAST(a.answer AS UNSIGNED)
+                    END
+                    ) AS country_id,
+                    MAX(
+                    CASE
+                    WHEN a.question_id = 40
+                    AND a.answer NOT REGEXP '^[0-9]+$'
+                    AND a.answer NOT LIKE '%@%'
+                    AND a.answer NOT LIKE '+%'
+                    THEN a.answer
+                    END
+                    ) AS city_name
                 FROM trx_company_answer a
-                WHERE a.question_id IN (40, 42, 43, 45, 46)
+                WHERE a.question_id IN (38, 40, 42, 43, 44, 45, 46)
                 GROUP BY a.company_id
             ) AS hq ON hq.company_id = c.company_id
             LEFT JOIN country co ON co.id = hq.country_id
@@ -139,123 +162,132 @@ const GlobalUserSearch = async (page = 1, limit = 15, searchTerm = '', filters =
         const conditions = [];
         const params = [];
 
-        // Base search
+        // Global Search
         if (searchTerm) {
             const likeTerm = `%${searchTerm}%`;
+
             conditions.push(`(
                 u.first_name LIKE ?
                 OR u.middle_name LIKE ?
                 OR u.last_name LIKE ?
-                OR CONCAT(u.first_name, ' ', u.last_name) LIKE ?
-                OR CONCAT(u.first_name, ' ', u.middle_name, ' ', u.last_name) LIKE ?
+                OR CONCAT(u.first_name,' ',u.last_name) LIKE ?
+                OR CONCAT(u.first_name,' ',u.middle_name,' ',u.last_name) LIKE ?
                 OR CAST(u.member_id AS CHAR) LIKE ?
             )`);
-            params.push(likeTerm, likeTerm, likeTerm, likeTerm, likeTerm, likeTerm);
+
+            params.push(
+                likeTerm,
+                likeTerm,
+                likeTerm,
+                likeTerm,
+                likeTerm,
+                likeTerm
+            );
         }
 
-        // name filter — checks first, middle, last
-        if (filters.name) {
-            const n = `%${filters.name}%`;
-            conditions.push(`(
-                u.first_name LIKE ?
-                OR u.middle_name LIKE ?
-                OR u.last_name LIKE ?
-                OR CONCAT(u.first_name, ' ', u.last_name) LIKE ?
-                OR CONCAT(u.first_name, ' ', u.middle_name, ' ', u.last_name) LIKE ?
-            )`);
-            params.push(n, n, n, n, n);
+        // Country
+        if (filters.country && filters.country.length > 0) {
+
+            const countryConditions = [];
+
+            filters.country.forEach(country => {
+                countryConditions.push(`u.country = ?`);
+                params.push(country);
+            });
+
+            conditions.push(`(${countryConditions.join(' OR ')})`);
         }
 
-        // gender — stored as 0, 1, 2 (tinyint)
-        if (filters.gender !== undefined && filters.gender !== '') {
-            conditions.push(`u.gender = ?`);
-            params.push(parseInt(filters.gender));
+        // Company
+        if (filters.company_name && filters.company_name.length > 0) {
+
+            const companyConditions = [];
+
+            filters.company_name.forEach(company => {
+                companyConditions.push(`(
+                    uc.company_name LIKE ?
+                    OR uc.other_company LIKE ?
+                )`);
+
+                params.push(
+                    `%${company}%`,
+                    `%${company}%`
+                );
+            });
+
+            conditions.push(`(${companyConditions.join(' OR ')})`);
         }
 
-        // country — stored as country code (e.g. 102)
-        if (filters.country !== undefined && filters.country !== '') {
-            conditions.push(`u.country = ?`);
-            params.push(filters.country); // send exactly what's stored e.g. "102"
-        }
-
-        // location — state and city stored as text
-        if (filters.location) {
-            const loc = `%${filters.location}%`;
-            conditions.push(`(u.state LIKE ? OR u.city LIKE ?)`);
-            params.push(loc, loc);
-        }
-
-        // user_profiles filters
-        if (filters.highest_education) {
-            conditions.push(`up.highest_education LIKE ?`);
-            params.push(`%${filters.highest_education}%`);
-        }
-        if (filters.skills) {
-            conditions.push(`up.skills LIKE ?`);
-            params.push(`%${filters.skills}%`);
-        }
-        if (filters.profession_type) {
-            conditions.push(`up.profession_type = ?`);
-            params.push(filters.profession_type);
-        }
+        // Job Title
         if (filters.job_title) {
             conditions.push(`up.job_title LIKE ?`);
             params.push(`%${filters.job_title}%`);
         }
-        if (filters.sector) {
-            conditions.push(`up.sector LIKE ?`);
-            params.push(`%${filters.sector}%`);
-        }
-        if (filters.industry) {
-            conditions.push(`up.industry LIKE ?`);
-            params.push(`%${filters.industry}%`);
+
+        // Industry
+        if (filters.sector && filters.sector.length > 0) {
+
+            const sectorConditions = [];
+
+            filters.sector.forEach(sector => {
+                sectorConditions.push(`FIND_IN_SET(?, up.sector)`);
+                params.push(sector);
+            });
+
+            conditions.push(`(${sectorConditions.join(' OR ')})`);
         }
 
         if (conditions.length === 0) {
             return {
                 data: [],
-                pagination: { total: 0, page, limit, totalPages: 0 }
+                pagination: {
+                    total: 0,
+                    page,
+                    limit,
+                    totalPages: 0
+                }
             };
         }
 
-        const whereClause = conditions.map(c => `(${c})`).join(' AND ');
+        const whereClause = conditions.map(c => `(${c})`).join(" AND ");
 
+        // Count Query
         const countSql = `
-            SELECT COUNT(*) AS total
+            SELECT COUNT(DISTINCT u.id) AS total
             FROM user u
             LEFT JOIN user_profiles up ON up.u_id = u.id
+            LEFT JOIN country c ON c.id = u.country
+            LEFT JOIN user_companies uc ON uc.u_id = u.id
             WHERE ${whereClause}
         `;
+
         const [countRows] = await db.query(countSql, params);
 
+        // Data Query
         const dataSql = `
-            SELECT 
+            SELECT
                 u.id,
                 u.member_id,
                 u.first_name,
                 u.middle_name,
                 u.last_name,
-                u.gender,
-                u.country,
+                c.country_name AS country,
                 u.state,
                 u.city,
                 up.profile_photo,
-                up.highest_education,
-                up.skills,
-                up.profession_type,
                 up.job_title,
-                up.work_experience,
-                up.seniority_level,
+                COALESCE(uc.company_name, uc.other_company) AS company_name,
                 up.sector,
-                up.industry,
-                up.department,
-                up.about_user
+                up.industry
             FROM user u
             LEFT JOIN user_profiles up ON up.u_id = u.id
+            LEFT JOIN country c ON c.id = u.country
+            LEFT JOIN user_companies uc ON uc.u_id = u.id
             WHERE ${whereClause}
             ORDER BY u.first_name ASC
             LIMIT ? OFFSET ?
         `;
+
         const [rows] = await db.query(dataSql, [...params, limit, offset]);
 
         return {
@@ -267,6 +299,7 @@ const GlobalUserSearch = async (page = 1, limit = 15, searchTerm = '', filters =
                 totalPages: Math.ceil(countRows[0].total / limit)
             }
         };
+
     } catch (error) {
         throw error;
     }
@@ -278,6 +311,9 @@ const GlobalSurveySearch = async (page = 1, limit = 15, searchTerm = '', filters
 
         const conditions = [];
         const params = [];
+
+        // Always exclude draft surveys
+        conditions.push(`s.status <> 0`);
 
         // Base search — only if searchTerm provided
         if (searchTerm) {
@@ -304,17 +340,46 @@ const GlobalSurveySearch = async (page = 1, limit = 15, searchTerm = '', filters
             conditions.push(`s.gender = ?`);
             params.push(parseInt(filters.gender));
         }
-        if (filters.sector) {
-            conditions.push(`s.sector LIKE ?`);
-            params.push(`%${filters.sector}%`);
+        if (filters.sector && filters.sector.length > 0) {
+
+            const sectorConditions = filters.sector.map(() => `FIND_IN_SET(?, s.sector)`);
+
+            conditions.push(`(${sectorConditions.join(' OR ')})`);
+
+            params.push(...filters.sector);
         }
         if (filters.industry) {
             conditions.push(`s.industry LIKE ?`);
             params.push(`%${filters.industry}%`);
         }
-        if (filters.country) {
-            conditions.push(`s.country LIKE ?`);
-            params.push(`%${filters.country}%`);
+        if (filters.country && filters.country.length > 0) {
+
+            const countryConditions = filters.country.map(() => `FIND_IN_SET(?, s.country)`);
+
+            conditions.push(`(${countryConditions.join(' OR ')})`);
+
+            params.push(...filters.country);
+        }
+
+        // Date Posted
+        if (filters.date_posted === '24_hours') {
+            conditions.push(`DATE(s.created_on) >= DATE_SUB(CURDATE(), INTERVAL 1 DAY)`);
+        }
+        else if (filters.date_posted === '7_days') {
+            conditions.push(`DATE(s.created_on) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)`);
+        }
+        else if (filters.date_posted === '28_days') {
+            conditions.push(`DATE(s.created_on) >= DATE_SUB(CURDATE(), INTERVAL 28 DAY)`);
+        }
+
+        // Custom Date Range
+        if (filters.start_date && filters.end_date) {
+            conditions.push(`
+                DATE(s.start_date) >= ?
+                AND DATE(s.end_date) <= ?
+            `);
+
+            params.push(filters.start_date, filters.end_date);
         }
 
         if (conditions.length === 0) {

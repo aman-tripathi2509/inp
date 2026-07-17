@@ -60,9 +60,19 @@ const createUser = async (
     name,
     email,
     password,
+
     company_name,
+    other_company,
+
     sector,
+    other_sector,
+
     industry,
+    other_industry,
+
+    country,
+    other_country,
+
     referred_by = null
 ) => {
 
@@ -109,17 +119,19 @@ const createUser = async (
 
         const userSql = `
             INSERT INTO user
-            (
-                member_id,
-                referral_code,
-                referred_by,
-                first_name,
-                middle_name,
-                last_name,
-                personal_email,
-                password
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (
+                    member_id,
+                    referral_code,
+                    referred_by,
+                    first_name,
+                    middle_name,
+                    last_name,
+                    personal_email,
+                    password,
+                    country,
+                    other_country
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
         const [userResult] = await connection.query(
@@ -132,7 +144,9 @@ const createUser = async (
                 middleName,
                 lastName,
                 encryptedEmail,
-                encryptedPassword
+                encryptedPassword,
+                country,
+                other_country
             ]
         );
 
@@ -148,16 +162,18 @@ const createUser = async (
             INSERT INTO user_companies
             (
                 u_id,
-                company_name
+                company_name,
+                other_company
             )
-            VALUES (?, ?)
+            VALUES (?, ?, ?)
         `;
 
         await connection.query(
             companySql,
             [
                 userId,
-                company_name
+                company_name,
+                other_company
             ]
         );
 
@@ -169,12 +185,14 @@ const createUser = async (
 
         const profileSql = `
             INSERT INTO user_profiles
-            (
-                u_id,
-                sector,
-                industry
-            )
-            VALUES (?, ?, ?)
+                (
+                    u_id,
+                    sector,
+                    other_sector,
+                    industry,
+                    other_industry
+                )
+                VALUES (?, ?, ?, ?, ?)
         `;
 
         await connection.query(
@@ -182,7 +200,9 @@ const createUser = async (
             [
                 userId,
                 sector,
-                industry
+                other_sector,
+                industry,
+                other_industry
             ]
         );
 
@@ -249,53 +269,6 @@ const loginUser = async (identifier) => {
         );
 
         return rows;
-
-    } catch (error) {
-
-        throw error;
-    }
-};
-
-/*--------------------------------------------------------------
-    Membership Request
---------------------------------------------------------------*/
-const membershipRequest = async (
-    full_name,
-    email,
-    company_name,
-    industry,
-    country
-) => {
-
-    try {
-
-        const query = `
-            INSERT INTO inp_membership_request
-            (
-                full_name,
-                email,
-                company_name,
-                industry,
-                country
-            )
-            VALUES
-            (?, ?, ?, ?, ?)
-        `;
-
-        const [result] = await db.query(
-            query,
-            [
-                full_name,
-                email,
-                company_name,
-                industry,
-                country
-            ]
-        );
-
-        return {
-            request_id: result.insertId
-        };
 
     } catch (error) {
 
@@ -1041,15 +1014,44 @@ const validateReferral = async (referral_code) => {
     }
 };
 
-const createSignupRequest = async (full_name, email, company_name, industry, country) => {
+const createSignupRequest = async (full_name, email, linkedin) => {
     try {
         const sql = `
             INSERT INTO signup_request
-            (full_name, email, company_name, industry, country, status)
-            VALUES (?, ?, ?, ?, ?, 1)
-        `; // 1 = pending
-        const [result] = await db.query(sql, [full_name, email, company_name, industry, country]);
-        return { request_id: result.insertId };
+            (
+                full_name,
+                email,
+                linkedin
+            )
+            VALUES (?, ?, ?)
+        `;
+
+        const [result] = await db.query(sql, [
+            full_name,
+            email,
+            linkedin
+        ]);
+
+        return {
+            request_id: result.insertId
+        };
+    } catch (error) {
+        throw error;
+    }
+};
+
+const getSignupRequestByEmail = async (email) => {
+    try {
+        const sql = `
+            SELECT id, status
+            FROM signup_request
+            WHERE email = ?
+            LIMIT 1
+        `;
+
+        const [rows] = await db.query(sql, [email]);
+
+        return rows;
     } catch (error) {
         throw error;
     }
@@ -1061,7 +1063,6 @@ module.exports = {
     createUser,
     getUserByEmail,
     loginUser,
-    membershipRequest,
     fetch_users,
     fetch_userDetail,
     updateUserData,
@@ -1082,5 +1083,6 @@ module.exports = {
     getDepartment,
     getFunctionByDepartment,
     validateReferral,
-    createSignupRequest
+    createSignupRequest,
+    getSignupRequestByEmail
     };

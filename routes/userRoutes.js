@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { signup, login, membership_Request,update_UserData,user_detail, getCompanyEmployees,fetchUsers,HighestEducation,getStates,WorkStatus,PrimaryProfession,TotalWorkEx,SeniorityLevel,WorkExCurrentCompany,BusinessModel,CompanyRevenue,CompanyType,FetchYears,FetchHouseholdIncome,FetchEmployementStatus,FetchDepartment,FetchFunction, checkReferral,signupRequest} = require("../controllers/userController");  // Import both functions
+const { signup, login,update_UserData,user_detail, getCompanyEmployees,fetchUsers,HighestEducation,getStates,WorkStatus,PrimaryProfession,TotalWorkEx,SeniorityLevel,WorkExCurrentCompany,BusinessModel,CompanyRevenue,CompanyType,FetchYears,FetchHouseholdIncome,FetchEmployementStatus,FetchDepartment,FetchFunction, checkReferral,signupRequest} = require("../controllers/userController");  // Import both functions
 const { authMiddleware } = require("../middlewares/authMiddleware");  // Import authMiddleware
 
 // Signup Route
@@ -11,7 +11,6 @@ router.post("/signup-request", signupRequest);     // no referral — goes to pe
 
 // Login Route
 router.post("/login", login);    // Use `/login` for authentication
-router.post("/membership-request" ,membership_Request);
 router.post('/update-user',authMiddleware,update_UserData);
 router.post('/user-detail',authMiddleware,user_detail);
 router.post('/company-employees',authMiddleware,getCompanyEmployees);

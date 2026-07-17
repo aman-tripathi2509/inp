@@ -230,6 +230,21 @@ const get_CompanyRevenue = async (req, res) => {
     }
 }
 
+// Controller function to get Company Revenue based on question_id
+const get_CompanyType = async (req, res) => {
+    try {
+        const question_id = 9;//for industries questions
+        const allCompanyType = await Survey.getCompanyType(question_id);
+        // Return the fetched sectors instead of the error message
+        res.status(200).json({ message: "Compay Type fetched successfully", data: allCompanyType });
+    }
+    catch (error) {
+        console.error('Error fetching Compay Type:', error);
+        res.status(500).json({ message: "Error fetching Compay Type" });
+    }
+}
+
+
 // Controller function to get countries based on question_id
 const get_Countries = async (req, res) => {
     try {
@@ -865,10 +880,7 @@ const getAvailableSurveys = async (req, res) => {
 
         const member_id = req.user.member_id;
 
-        const surveys =
-            await Survey.getAvailableSurveys(
-                member_id
-            );
+        const surveys = await Survey.getAvailableSurveys(member_id);
 
         return res.status(200).json({
             success: true,
@@ -1275,6 +1287,44 @@ const getSurveyQuestions = async (req, res) => {
 
 }
 
+const cloneSurvey = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+        const { survey_id } = req.body;
+
+        if (!survey_id) {
+            return res.status(400).json({
+                success: false,
+                message: "survey_id is required"
+            });
+        }
+
+        const result = await Survey.cloneSurvey(
+            survey_id,
+            member_id
+        );
+
+        return res.status(201).json({
+            success: true,
+            message: "Survey cloned successfully",
+            data: result
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+
+    }
+
+};
+
 module.exports = {
     saveSurveyDetails,
     updateSurveyDetails,
@@ -1297,8 +1347,10 @@ module.exports = {
     get_Countries,
     get_CompanySize,
     get_CompanyRevenue,
+    get_CompanyType,
     getIndustries,
     getSurveyDetails,
     getSurveyQuestions,
-    deleteSurveyResponse
+    deleteSurveyResponse,
+    cloneSurvey
     };

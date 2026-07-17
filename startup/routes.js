@@ -7,6 +7,7 @@ const admincompanyRoutes=require("../routes/adminCompanyRoutes");
 const signupRequestRoutes=require("../routes/SignupRequestRoutes");
 const contactRoutes=require("../routes/contactRoutes");
 const globalRoutes = require('../routes/globalRoutes');
+const walletRoutes = require('../routes/walletRoutes');
 module.exports = function (app) {
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
@@ -19,5 +20,6 @@ module.exports = function (app) {
     app.use("/api/survey", surveyRoutes); // Mount survey routes with `/api/survey` base path
     app.use('/api/contact_us',contactRoutes);//api to for contact-us.
     app.use("/api/global", globalRoutes);
+    app.use("/api/wallet", walletRoutes);
 };
  

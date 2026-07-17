@@ -19,6 +19,7 @@ const {
     get_Countries,
     get_CompanySize,
     get_CompanyRevenue,
+    get_CompanyType,
     getSectorIndustryHierarchy,
     getSectors,
     getIndustries,
@@ -26,7 +27,8 @@ const {
     getSurveyQuestions,
     deleteSurveyResponse,
     previewSubmittedSurvey,
-    completeSurvey
+    completeSurvey,
+    cloneSurvey
 } = require("../controllers/surveyController");
 
 const {
@@ -212,12 +214,24 @@ router.post(
     get_CompanyRevenue
 );
 
+// Company Type
+router.post(
+    "/company-type",
+    authMiddleware,
+    get_CompanyType
+);
+
 // Industries
 router.post(
     "/industries",
     getIndustries
 );
 
+router.post(
+    "/clone-survey",
+    authMiddleware,
+    cloneSurvey
+);
 
 
 module.exports = router;

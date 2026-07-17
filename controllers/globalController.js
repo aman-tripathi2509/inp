@@ -10,34 +10,43 @@ const globalSearchController = async (req, res) => {
         const limit = parseInt(req.body.limit) || 15;
 
         const surveyFilters = {
-            survey_title:  req.body.survey_title || '',
-            status:        req.body.survey_status ?? '',
-            gender:        req.body.survey_gender ?? '',
-            sector:        req.body.survey_sector || '',
-            industry:      req.body.survey_industry || '',
-            country:       req.body.survey_country || ''
+            sector: Array.isArray(req.body.survey_sector)
+                ? req.body.survey_sector
+                : (req.body.survey_sector ? req.body.survey_sector.split(',') : []),
+
+            industry: req.body.survey_industry || '',
+
+            country: Array.isArray(req.body.survey_country)
+                ? req.body.survey_country
+                : (req.body.survey_country ? req.body.survey_country.split(',') : []),
+
+            date_posted: req.body.date_posted || '',
+            start_date: req.body.start_date || '',
+            end_date: req.body.end_date || ''
         };
 
         const userFilters = {
-            name:              req.body.name || '',
-            gender:            req.body.gender ?? '',
-            country:           req.body.country || '',
-            location:          req.body.location || '',
-            highest_education: req.body.highest_education || '',
-            skills:            req.body.skills || '',
-            profession_type:   req.body.profession_type || '',
-            job_title:         req.body.job_title || '',
-            sector:            req.body.sector || '',
-            industry:          req.body.industry || ''
+            sector: Array.isArray(req.body.people_sector)
+                ? req.body.people_sector
+                : (req.body.people_sector ? req.body.people_sector.split(',') : []),
+
+            industry: req.body.people_industry || '',
+            company_name: Array.isArray(req.body.people_company)
+                ? req.body.people_company
+                : (req.body.people_company ? req.body.people_company.split(',') : []),
+
+            country: Array.isArray(req.body.people_country)
+                ? req.body.people_country
+                : (req.body.people_country ? req.body.people_country.split(',') : []),
+
+            job_title: req.body.people_job_title || ''
         };
 
         const companyFilters = {
-            company_name:    req.body.company_name || '',
-            company_size:    req.body.company_size || '',
-            industry:        req.body.company_industry || '',
-            company_revenue: req.body.company_revenue || '',
-            business_model:  req.body.business_model || '',
-            location:        req.body.company_location || ''
+            industry: req.body.company_industry || '',
+            location: req.body.company_location || '',
+            company_size: req.body.company_size || '',
+            company_type: req.body.company_type || ''
         };
 
         // Require at least searchTerm OR one filter

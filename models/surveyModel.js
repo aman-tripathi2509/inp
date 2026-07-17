@@ -701,71 +701,78 @@ const getAvailableSurveys = async (member_id) => {
         }
 
         const surveyQuery = `
-            SELECT *
-            FROM inp_survey
+            SELECT
+                s.*,
+
+                CASE
+                    WHEN sp.member_id IS NULL THEN FALSE
+                    ELSE TRUE
+                END AS is_participated,
+
+                sp.status AS participation_status,
+
+                sp.started_at,
+                sp.completed_at
+
+            FROM inp_survey s
+
+            LEFT JOIN inp_survey_participant sp
+                ON sp.survey_id = s.id
+                AND sp.member_id = ?
+
             WHERE
-                member_id != ?
 
-                -- Active Survey
-                AND status = 1
+                s.member_id != ?
 
-                -- User should not have already completed this survey
-                AND NOT EXISTS (
-                    SELECT 1
-                    FROM inp_survey_participant sp
-                    WHERE
-                        sp.survey_id = inp_survey.id
-                        AND sp.member_id = ?
-                        AND sp.status = 1
-                )
+                AND s.status = 1
 
                 -- Age Match
                 AND (
-                    min_age IS NULL
-                    OR max_age IS NULL
-                    OR ? BETWEEN min_age AND max_age
+                    s.min_age IS NULL
+                    OR s.max_age IS NULL
+                    OR ? BETWEEN s.min_age AND s.max_age
                 )
 
                 -- Gender Match
                 AND (
-                    gender = 0
-                    OR gender = ?
+                    s.gender = 0
+                    OR s.gender = ?
                 )
 
                 -- Country Match
                 AND (
-                    country IS NULL
-                    OR country = ''
-                    OR country = ?
+                    s.country IS NULL
+                    OR s.country = ''
+                    OR s.country = ?
                 )
 
                 -- State Match
                 AND (
-                    state IS NULL
-                    OR state = ''
-                    OR state = ?
+                    s.state IS NULL
+                    OR s.state = ''
+                    OR s.state = ?
                 )
 
                 -- Sector Match
                 AND (
-                    sector IS NULL
-                    OR sector = ''
-                    OR LOWER(TRIM(sector)) = LOWER(TRIM(?))
+                    s.sector IS NULL
+                    OR s.sector = ''
+                    OR LOWER(TRIM(s.sector)) = LOWER(TRIM(?))
                 )
 
                 -- Industry Match
                 AND (
-                    industry IS NULL
-                    OR industry = ''
-                    OR LOWER(TRIM(industry)) = LOWER(TRIM(?))
+                    s.industry IS NULL
+                    OR s.industry = ''
+                    OR LOWER(TRIM(s.industry)) = LOWER(TRIM(?))
                 )
 
-            ORDER BY id DESC
+            ORDER BY s.id DESC
         `;
 
         const params = [
-            member_id,      // member_id != ?
-            member_id,      // participant table
+            member_id,   // LEFT JOIN
+            member_id,   // s.member_id != ?
             user.age,
             user.gender,
             user.country,
@@ -1864,6 +1871,17 @@ const getCompanyRevenue = async (question_id) => {
         throw error;
     }
 }
+// arrow function to get Company Revenue based on question_id
+const getCompanyType = async (question_id) => {
+    try {
+        const query = "select question_answer_id, answer from lu_question_answer where question_id = ?";
+        const [rows] = await db.query(query, [question_id]);
+        return rows;
+    } catch (error) {
+        console.error('Error fetching Company Type:', error);
+        throw error;
+    }
+}
 
 // arrow function to get contrires based on question_id
 const getCountries = async () => {
@@ -1877,6 +1895,238 @@ const getCountries = async () => {
     }
 }
 
+
+const cloneSurvey = async (survey_id, member_id) => {
+
+    let connection;
+
+    try {
+
+        connection = await db.getConnection();
+
+        await connection.beginTransaction();
+
+        //--------------------------------------------------
+        // Get Original Survey
+        //--------------------------------------------------
+
+        const [[survey]] = await connection.query(
+            `
+            SELECT *
+            FROM inp_survey
+            WHERE id = ?
+            LIMIT 1
+            `,
+            [survey_id]
+        );
+
+        if (!survey) {
+            throw new Error("Survey not found");
+        }
+
+        //--------------------------------------------------
+        // Create New Survey
+        //--------------------------------------------------
+
+        const [surveyResult] = await connection.query(
+            `
+            INSERT INTO inp_survey
+            (
+                member_id,
+                parent_survey_id,
+                survey_title,
+                survey_description,
+                survey_image,
+                start_date,
+                end_date,
+                min_age,
+                max_age,
+                gender,
+                target_responses,
+                reward_per_participant,
+                sector,
+                industry,
+                country,
+                state,
+                status
+            )
+            VALUES
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+            [
+                member_id,
+                survey_id, //original survey id
+                survey.survey_title + " (Cloned)",
+                survey.survey_description,
+                survey.survey_image,
+                survey.start_date,
+                survey.end_date,
+                survey.min_age,
+                survey.max_age,
+                survey.gender,
+                survey.target_responses,
+                survey.reward_per_participant,
+                survey.sector,
+                survey.industry,
+                survey.country,
+                survey.state,
+
+                // Always create as Draft
+                0
+            ]
+        );
+
+        const newSurveyId = surveyResult.insertId;
+
+        //--------------------------------------------------
+        // Clone Questions
+        //--------------------------------------------------
+
+        const [questions] = await connection.query(
+            `
+            SELECT *
+            FROM inp_survey_question
+            WHERE survey_id=?
+            ORDER BY question_order
+            `,
+            [survey_id]
+        );
+
+        const questionMap = {};
+
+        for (const question of questions) {
+
+            const [questionResult] =
+                await connection.query(
+                    `
+                    INSERT INTO
+                    inp_survey_question
+                    (
+                        survey_id,
+                        question_text,
+                        question_type,
+                        question_image,
+                        is_required,
+                        question_order
+                    )
+                    VALUES
+                    (?, ?, ?, ?, ?, ?)
+                    `,
+                    [
+                        newSurveyId,
+                        question.question_text,
+                        question.question_type,
+                        question.question_image,
+                        question.is_required,
+                        question.question_order
+                    ]
+                );
+
+            questionMap[question.id] =
+                questionResult.insertId;
+        }
+
+        //--------------------------------------------------
+        // Clone Options
+        //--------------------------------------------------
+
+        const [options] = await connection.query(
+            `
+            SELECT *
+            FROM inp_survey_question_option
+            WHERE survey_id=?
+            ORDER BY option_order
+            `,
+            [survey_id]
+        );
+
+        for (const option of options) {
+
+            await connection.query(
+                `
+                INSERT INTO
+                inp_survey_question_option
+                (
+                    survey_id,
+                    question_id,
+                    option_text,
+                    option_image,
+                    option_order
+                )
+                VALUES
+                (?, ?, ?, ?, ?)
+                `,
+                [
+                    newSurveyId,
+                    questionMap[option.question_id],
+                    option.option_text,
+                    option.option_image,
+                    option.option_order
+                ]
+            );
+
+        }
+
+        //--------------------------------------------------
+        // Clone Tags
+        //--------------------------------------------------
+
+        const [tags] = await connection.query(
+            `
+            SELECT *
+            FROM inp_survey_tags
+            WHERE survey_id=?
+            `,
+            [survey_id]
+        );
+
+        for (const tag of tags) {
+
+            await connection.query(
+                `
+                INSERT INTO
+                inp_survey_tags
+                (
+                    survey_id,
+                    tag_name
+                )
+                VALUES
+                (?, ?)
+                `,
+                [
+                    newSurveyId,
+                    tag.tag_name
+                ]
+            );
+
+        }
+
+        await connection.commit();
+
+        return {
+            survey_id: newSurveyId,
+            parent_survey_id: survey_id,
+            status: 0
+        };
+
+    } catch (error) {
+
+        if (connection) {
+            await connection.rollback();
+        }
+
+        throw error;
+
+    } finally {
+
+        if (connection) {
+            connection.release();
+        }
+
+    }
+
+};
+
 module.exports = {
     createSurveyDetails,
     updateSurveyDetails,
@@ -1889,6 +2139,7 @@ module.exports = {
     getSavedSurveys,
     removeSavedSurvey,
     getMySurveys,
+    getAvailableSurveys,
     getSurveyForMeDetails,
     submitSurvey,
     previewSubmittedSurvey,
@@ -1899,6 +2150,9 @@ module.exports = {
     getCountries,
     getCompanySize,
     getCompanyRevenue,
+    getCompanyType,
     getSurveyDetails,
     getSurveyQuestions,
-    deleteSurveyResponse};
+    deleteSurveyResponse,
+    cloneSurvey
+};
