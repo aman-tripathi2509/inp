@@ -874,16 +874,22 @@ const getMySurveys = async (req, res) => {
     }
 };
 
-const getAvailableSurveys = async (req, res) => {
+const getSurveyForMe = async (req, res) => {
 
     try {
 
         const member_id = req.user.member_id;
 
-        const surveys = await Survey.getAvailableSurveys(member_id);
+        const tab = req.query.tab || "available";
+
+        const surveys = await Survey.getSurveyForMe(
+            member_id,
+            tab
+        );
 
         return res.status(200).json({
             success: true,
+            tab,
             count: surveys.length,
             data: surveys
         });
@@ -896,7 +902,9 @@ const getAvailableSurveys = async (req, res) => {
             success: false,
             message: error.message
         });
+
     }
+
 };
 
 const getSurveyForMeDetails = async (req, res) => {
@@ -1084,10 +1092,10 @@ const completeSurvey = async (req, res) => {
             );
 
         return res.status(200).json({
-            success: true,
-            message: "Survey submitted successfully",
-            data: result
-        });
+        success: true,
+        message: result.message,
+        data: result
+    });
 
     } catch (error) {
 
@@ -1337,7 +1345,7 @@ module.exports = {
     getSavedSurveys,
     removeSavedSurvey,
     getMySurveys,
-    getAvailableSurveys,
+    getSurveyForMe,
     getSurveyForMeDetails,
     submitSurvey,
     previewSubmittedSurvey,

@@ -486,19 +486,45 @@ const getSavedSurveys = async (member_id) => {
             ss.created_on AS saved_on,
 
             s.id,
+            s.member_id,
             s.survey_title,
             s.survey_description,
             s.survey_image,
             s.start_date,
             s.end_date,
-            s.reward_per_participant,
+                (
+                SELECT COUNT(*)
+                FROM inp_survey_question q
+                WHERE q.survey_id = s.id
+                ) AS reward_per_participant,
             s.target_responses,
-            s.status
+            s.status,
+
+            CONCAT_WS(
+                ' ',
+                u.first_name,
+                u.middle_name,
+                u.last_name
+            ) AS creator_name,
+
+            up.job_title,
+
+            (
+    SELECT GROUP_CONCAT(tag_name ORDER BY tag_name SEPARATOR ', ')
+    FROM inp_survey_tags t
+    WHERE t.survey_id = s.id
+) AS tags
 
         FROM inp_saved_survey ss
 
         INNER JOIN inp_survey s
             ON s.id = ss.survey_id
+
+        INNER JOIN user u
+            ON u.member_id = s.member_id
+
+        LEFT JOIN user_profiles up
+            ON up.u_id = u.id
 
         WHERE ss.member_id = ?
 
@@ -508,6 +534,85 @@ const getSavedSurveys = async (member_id) => {
     );
 
     return rows;
+};
+
+const getCompletedSurveys = async (member_id) => {
+
+    const [rows] = await db.query(
+        `
+        SELECT
+            sp.completed_at,
+
+            s.id,
+            s.member_id,
+            s.survey_title,
+            s.survey_description,
+            s.survey_image,
+            s.start_date,
+            s.end_date,
+                (
+                SELECT COUNT(*)
+                FROM inp_survey_question q
+                WHERE q.survey_id = s.id
+                ) AS reward_per_participant,
+            s.target_responses,
+            s.status,
+
+            CONCAT_WS(
+                ' ',
+                u.first_name,
+                u.middle_name,
+                u.last_name
+            ) AS creator_name,
+
+            up.job_title,
+
+            (
+    SELECT GROUP_CONCAT(tag_name ORDER BY tag_name SEPARATOR ', ')
+    FROM inp_survey_tags t
+    WHERE t.survey_id = s.id
+) AS tags
+
+        FROM inp_survey_participant sp
+
+        INNER JOIN inp_survey s
+            ON s.id = sp.survey_id
+
+        INNER JOIN user u
+            ON u.member_id = s.member_id
+
+        LEFT JOIN user_profiles up
+            ON up.u_id = u.id
+
+        WHERE
+            sp.member_id = ?
+            AND sp.status = 1
+
+        ORDER BY sp.completed_at DESC
+        `,
+        [member_id]
+    );
+
+    return rows;
+};
+
+const getSurveyForMe = async (member_id, tab) => {
+
+    switch (tab) {
+
+        case "available":
+            return await getAvailableSurveys(member_id);
+
+        case "saved":
+            return await getSavedSurveys(member_id);
+
+        case "completed":
+            return await getCompletedSurveys(member_id);
+
+        default:
+            throw new Error("Invalid tab");
+    }
+
 };
 
 const removeSavedSurvey = async (member_id, survey_id) => {
@@ -702,7 +807,43 @@ const getAvailableSurveys = async (member_id) => {
 
         const surveyQuery = `
             SELECT
-                s.*,
+                s.id,
+                s.member_id,
+                s.parent_survey_id,
+                s.survey_title,
+                s.survey_description,
+                s.survey_image,
+                s.start_date,
+                s.end_date,
+                s.target_responses,
+
+                (
+                    SELECT COUNT(*)
+                    FROM inp_survey_question q
+                    WHERE q.survey_id = s.id
+                ) AS reward_per_participant,
+
+                s.status,
+
+                CONCAT_WS(
+                    ' ',
+                    u.first_name,
+                    u.middle_name,
+                    u.last_name
+                ) AS creator_name,
+
+                up.job_title,
+
+                (
+                    SELECT GROUP_CONCAT(tag_name ORDER BY tag_name SEPARATOR ', ')
+                    FROM inp_survey_tags t
+                    WHERE t.survey_id = s.id
+                ) AS tags,
+
+                CASE
+                    WHEN ss.id IS NULL THEN FALSE
+                    ELSE TRUE
+                END AS is_saved,
 
                 CASE
                     WHEN sp.member_id IS NULL THEN FALSE
@@ -710,21 +851,36 @@ const getAvailableSurveys = async (member_id) => {
                 END AS is_participated,
 
                 sp.status AS participation_status,
-
                 sp.started_at,
                 sp.completed_at
 
             FROM inp_survey s
 
+            INNER JOIN user u
+                ON u.member_id = s.member_id
+
+            LEFT JOIN user_profiles up
+                ON up.u_id = u.id
+
             LEFT JOIN inp_survey_participant sp
                 ON sp.survey_id = s.id
                 AND sp.member_id = ?
+
+            LEFT JOIN inp_saved_survey ss
+            ON ss.survey_id = s.id
+            AND ss.member_id = ?
 
             WHERE
 
                 s.member_id != ?
 
                 AND s.status = 1
+
+                -- Hide completed surveys
+                AND (
+                    sp.member_id IS NULL
+                    OR sp.status <> 1
+                )
 
                 -- Age Match
                 AND (
@@ -771,7 +927,8 @@ const getAvailableSurveys = async (member_id) => {
         `;
 
         const params = [
-            member_id,   // LEFT JOIN
+            member_id,   // inp_survey_participant
+            member_id,   // inp_saved_survey
             member_id,   // s.member_id != ?
             user.age,
             user.gender,
@@ -1511,6 +1668,8 @@ const previewSubmittedSurvey = async (
     }
 };
 
+const COINS_PER_QUESTION = 1;
+
 const completeSurvey = async (survey_id, member_id) => {
 
     let connection;
@@ -1519,6 +1678,10 @@ const completeSurvey = async (survey_id, member_id) => {
 
         connection = await db.getConnection();
         await connection.beginTransaction();
+
+        //--------------------------------------------------
+        // Check Participant
+        //--------------------------------------------------
 
         const [[participant]] = await connection.query(
             `
@@ -1543,6 +1706,10 @@ const completeSurvey = async (survey_id, member_id) => {
             );
         }
 
+        //--------------------------------------------------
+        // Check Progress
+        //--------------------------------------------------
+
         const progress = await getSurveyProgress(
             connection,
             survey_id,
@@ -1555,6 +1722,10 @@ const completeSurvey = async (survey_id, member_id) => {
                 400
             );
         }
+
+        //--------------------------------------------------
+        // Mark Survey Completed
+        //--------------------------------------------------
 
         await connection.query(
             `
@@ -1569,11 +1740,156 @@ const completeSurvey = async (survey_id, member_id) => {
             [survey_id, member_id]
         );
 
+        //--------------------------------------------------
+        // Count Questions
+        //--------------------------------------------------
+
+        const [[questionCount]] = await connection.query(
+            `
+            SELECT COUNT(*) AS total_questions
+            FROM inp_survey_question
+            WHERE survey_id = ?
+            `,
+            [survey_id]
+        );
+
+        const rewardCoins =
+            Number(questionCount.total_questions) *
+            COINS_PER_QUESTION;
+
+        //--------------------------------------------------
+        // Lock Wallet
+        //--------------------------------------------------
+
+        const [[wallet]] = await connection.query(
+            `
+            SELECT
+                wallet_id,
+                balance,
+                total_earned
+            FROM inp_wallet
+            WHERE member_id = ?
+            FOR UPDATE
+            `,
+            [member_id]
+        );
+
+        if (!wallet) {
+            throw createError(
+                "Wallet not found",
+                404
+            );
+        }
+
+        //--------------------------------------------------
+        // Prevent Duplicate Reward
+        //--------------------------------------------------
+
+        const [[rewardExists]] = await connection.query(
+            `
+            SELECT transaction_id
+            FROM inp_wallet_transactions
+            WHERE
+                member_id = ?
+                AND transaction_type_id = 2
+                AND reference_table = 'inp_survey'
+                AND reference_id = ?
+            LIMIT 1
+            `,
+            [
+                member_id,
+                survey_id
+            ]
+        );
+
+        if (!rewardExists) {
+
+            const balanceBefore =
+                wallet.balance;
+
+            const balanceAfter =
+                balanceBefore +
+                rewardCoins;
+
+            const totalEarned =
+                wallet.total_earned +
+                rewardCoins;
+
+            //--------------------------------------------------
+            // Update Wallet
+            //--------------------------------------------------
+
+            await connection.query(
+                `
+                UPDATE inp_wallet
+                SET
+                    balance = ?,
+                    total_earned = ?
+                WHERE wallet_id = ?
+                `,
+                [
+                    balanceAfter,
+                    totalEarned,
+                    wallet.wallet_id
+                ]
+            );
+
+            //--------------------------------------------------
+            // Wallet Transaction
+            //--------------------------------------------------
+
+            await connection.query(
+                `
+                INSERT INTO inp_wallet_transactions
+                (
+                    wallet_id,
+                    member_id,
+                    transaction_type_id,
+                    transaction_mode,
+                    payment_method,
+                    coins,
+                    balance_before,
+                    balance_after,
+                    reference_id,
+                    reference_table,
+                    remarks
+                )
+                VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `,
+                [
+                    wallet.wallet_id,
+                    member_id,
+                    2,                  // Survey Reward
+                    1,                  // Credit
+                    null,
+                    rewardCoins,
+                    balanceBefore,
+                    balanceAfter,
+                    survey_id,
+                    "inp_survey",
+                    `${questionCount.total_questions} Question Survey Reward`
+                ]
+            );
+
+        }
+
+        //--------------------------------------------------
+        // Commit
+        //--------------------------------------------------
+
         await connection.commit();
 
         return {
             survey_id,
-            status: "completed"
+            status: "completed",
+            message: `Congratulations! You earned ${rewardCoins} coin(s).`,
+            reward: {
+                coins: rewardCoins,
+                total_questions: questionCount.total_questions,
+                balance_before: wallet.balance,
+                balance_after: wallet.balance + rewardCoins
+            }
         };
 
     } catch (error) {
@@ -2136,10 +2452,12 @@ module.exports = {
     closeSurvey,
     archiveSurvey,
     saveSurvey,
-    getSavedSurveys,
     removeSavedSurvey,
     getMySurveys,
     getAvailableSurveys,
+    getSavedSurveys,
+    getCompletedSurveys,
+    getSurveyForMe,
     getSurveyForMeDetails,
     submitSurvey,
     previewSubmittedSurvey,

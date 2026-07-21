@@ -13,7 +13,7 @@ const {
     getSavedSurveys,
     removeSavedSurvey,
     getMySurveys,
-    getAvailableSurveys,
+    getSurveyForMe,
     getSurveyForMeDetails,
     submitSurvey,
     get_Countries,
@@ -123,7 +123,7 @@ router.get(
 router.get(
     "/survey-for-me",
     authMiddleware,
-    getAvailableSurveys
+    getSurveyForMe
 );
 
 // My Survey detals

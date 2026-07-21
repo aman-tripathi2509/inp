@@ -412,8 +412,37 @@ const GlobalSurveySearch = async (page = 1, limit = 15, searchTerm = '', filters
         `;
         const [rows] = await db.query(dataSql, [...params, limit, offset]);
 
+        // Fetch tags for all surveys
+        const surveyIds = rows.map(r => r.id);
+
+        let surveys = rows;
+
+        if (surveyIds.length > 0) {
+
+            const [tags] = await db.query(
+                `SELECT survey_id, tag_name
+                FROM inp_survey_tags
+                WHERE survey_id IN (?)`,
+                [surveyIds]
+            );
+
+            const tagMap = {};
+
+            tags.forEach(tag => {
+                if (!tagMap[tag.survey_id]) {
+                    tagMap[tag.survey_id] = [];
+                }
+                tagMap[tag.survey_id].push(tag.tag_name);
+            });
+
+            surveys = rows.map(row => ({
+                ...row,
+                survey_tags: tagMap[row.id] || []
+            }));
+        }
+
         return {
-            data: rows,
+            data: surveys,
             pagination: {
                 total: countRows[0].total,
                 page,
