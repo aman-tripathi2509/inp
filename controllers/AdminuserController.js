@@ -48,16 +48,42 @@ const Adminlogin = async (req, res) => {
 
         // Generate JWT
         const token = jwt.sign(
-            { adminId: admin[0].id },
+            { adminId: admin[0].user_id },
             process.env.JWT_SECRET,
             { expiresIn: "12h" }
         );
 
-        res.status(200).json({ message: "Admin login successful", token, admin: admin[0] });
+        // Prepare response without password
+        const adminData = {
+            user_id: admin[0].user_id,
+            full_name: `${admin[0].first_name} ${admin[0].last_name}`,
+            username: admin[0].username
+        };
+
+        res.status(200).json({
+            message: "Login successful",
+            token,
+            admin: adminData
+        });
     } catch (error) {
         console.error("Error in admin login:", error);
         res.status(500).json({ message: "Database error" });
     }
+};
+
+const toArray = (value) => {
+    if (!value) return [];
+
+    // Already an array (multiple form-data keys)
+    if (Array.isArray(value)) {
+        return value.map(item => String(item).trim()).filter(Boolean);
+    }
+
+    // Comma-separated string
+    return String(value)
+        .split(",")
+        .map(item => item.trim())
+        .filter(Boolean);
 };
 
 // ====================== GET ALL COMPANIES ======================
@@ -70,16 +96,21 @@ const AdminGetInpUsers = async (req, res) => {
         const filters = {
             member_id: req.body.member_id || "",
             name: req.body.name || "",
-            country: req.body.country || "",
-            current_company: req.body.current_company || "",
-            job_title: req.body.job_title || "", // Changed to match case sensitivity
-            employee_size: req.body.employee_size || "",
-            company_revenue: req.body.company_revenue || "",
-            seniority_level: req.body.seniority_level || "",
-            profession_type: req.body.profession_type || "",
-            sector: req.body.sector || "",
-            industry: req.body.industry || ""
+            job_title: req.body.job_title || "",
+
+            country: toArray(req.body.country),
+            current_company: toArray(req.body.current_company),
+            employee_size: toArray(req.body.employee_size),
+            company_revenue: toArray(req.body.company_revenue),
+            seniority_level: toArray(req.body.seniority_level),
+            profession_type: toArray(req.body.profession_type),
+            sector: toArray(req.body.sector),
+            industry: toArray(req.body.industry),
         };
+
+        console.log("=========== CONTROLLER ===========");
+        console.log("Request Body:", req.body);
+        console.log("Filters:", filters);
 
         const users = await AdminINPUserListing(page, limit, filters);
 
@@ -113,20 +144,38 @@ const AdminGetInpUsers = async (req, res) => {
 // Get single user by member_id
 const AdmingetINPUserById = async (req, res) => {
     try {
-        const { member_id } = req.body; // <-- from body
-        const user = await AdminUser.AdminInpUserById(member_id);
+        const { member_id } = req.body;
 
-        if (!user || user.length === 0) {
-            return res.status(404).json({ message: "User not found" });
+        if (!member_id) {
+            return res.status(400).json({
+                message: "member_id is required"
+            });
         }
 
-        res.status(200).json({
+        const user = await AdminUser.AdminInpUserById(member_id);
+
+        if (!user.length) {
+            return res.status(404).json({
+                message: "User not found"
+            });
+        }
+
+        const userData = user[0];
+
+        // Decrypt personal email
+        userData.personal_email = aesDecrypt(userData.personal_email);
+
+        return res.status(200).json({
             message: "User fetched successfully",
-            data: user[0],
+            data: userData
         });
+
     } catch (error) {
-        console.error("Error fetching user:", error);
-        res.status(500).json({ message: "Database error", error: error.message });
+        console.error(error);
+        return res.status(500).json({
+            message: "Database error",
+            error: error.message
+        });
     }
 };
 

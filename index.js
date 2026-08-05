@@ -1,10 +1,19 @@
 require("dotenv").config();
 const express = require("express");
+const http = require("http");
 const path = require("path");
 const db = require("./config/db");
 const setupSwagger = require("./startup/swagger");
 
+const { initializeSocket } = require("./socket");
+
 const app = express();
+
+const server = http.createServer(app);
+
+initializeSocket(server);
+
+
 
 // ✅ ONLY keep these
 app.use(express.json());
@@ -39,7 +48,7 @@ async function startServer() {
         if (connection) connection.release();
     }
 
-    app.listen(PORT, () => {
+    server.listen(PORT, () => {
         console.log(`Server running on http://localhost:${PORT}`);
     });
 }

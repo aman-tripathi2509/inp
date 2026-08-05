@@ -1,6 +1,10 @@
 const Survey = require("../models/surveyModel");
 
+const { getIO } = require("../socket");
+
 const fileUrl = (file) => `/uploads/surveys/${file.filename}`;
+
+const { aesDecrypt } = require("../utils/encryption");
 
 const parseMultiSelect = (value) => {
     if (!value) return "";
@@ -486,6 +490,117 @@ const saveSurveyQuestions = async (req, res) => {
             message: error.message
         });
     }
+};
+
+
+const updateSurveyQuestions = async (req, res) => {
+
+    try {
+
+        const { survey_id } = req.params;
+
+        const {
+            questions,
+            tags
+        } = req.body;
+
+        const parsedQuestions = parseJsonField(questions, null);
+        const parsedTags = parseJsonField(tags, []);
+
+        if (!survey_id) {
+            return res.status(400).json({
+                success: false,
+                message: "survey_id is required"
+            });
+        }
+
+        if (
+            !parsedQuestions ||
+            !Array.isArray(parsedQuestions)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "questions array required"
+            });
+        }
+
+        const allowedTypes = [
+            "single_select",
+            "multi_select",
+            "open_end",
+            "dropdown",
+            "rating",
+            "yes_no",
+            "nps"
+        ];
+
+        const normalizedQuestions =
+            normalizeSurveyQuestionImages(
+                parsedQuestions,
+                req.files
+            );
+
+        for (const q of normalizedQuestions) {
+
+            if (
+                !q.question_text ||
+                !q.question_type
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: "question_text and question_type are required"
+                });
+            }
+
+            if (
+                !allowedTypes.includes(
+                    q.question_type
+                )
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Invalid question type: ${q.question_type}`
+                });
+            }
+
+            if (
+                q.question_type !== "open_end" &&
+                (
+                    !q.options ||
+                    q.options.length === 0
+                )
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: `${q.question_text} requires options`
+                });
+            }
+        }
+
+        const result =
+            await Survey.updateSurveyQuestions(
+                survey_id,
+                normalizedQuestions,
+                parsedTags
+            );
+
+        return res.status(200).json({
+            success: true,
+            message: "Survey questions updated successfully",
+            data: result
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+
+    }
+
 };
 
 const previewSurvey = async (req, res) => {
@@ -1333,10 +1448,447 @@ const cloneSurvey = async (req, res) => {
 
 };
 
+
+const toggleSurveyLike = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+
+        const { survey_id } = req.body;
+
+        //--------------------------------------------------
+        // Validation
+        //--------------------------------------------------
+
+        if (!survey_id) {
+
+            return res.status(400).json({
+                success: false,
+                message: "survey_id is required"
+            });
+
+        }
+
+        //--------------------------------------------------
+        // Toggle Like
+        //--------------------------------------------------
+
+        const result = await Survey.toggleSurveyLike(
+            survey_id,
+            member_id
+        );
+
+        // Emit realtime update
+        const io = getIO();
+
+        io.to(`survey_${survey_id}`).emit(
+            "survey_like_updated",
+            result
+        );
+
+        return res.status(200).json({
+
+            success: true,
+
+            message: result.liked
+                ? "Survey liked successfully."
+                : "Survey unliked successfully.",
+
+            data: result
+
+        });
+
+    } catch (error) {
+
+        console.error("Toggle Survey Like Error:", error);
+
+        return res.status(error.statusCode || 500).json({
+
+            success: false,
+
+            message: error.message || "Internal Server Error"
+
+        });
+
+    }
+
+};
+
+
+
+const addSurveyComment = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+
+        const {
+            survey_id,
+            comment,
+            parent_comment_id
+        } = req.body;
+
+        //--------------------------------------------------
+        // Validation
+        //--------------------------------------------------
+
+        if (!survey_id) {
+
+            return res.status(400).json({
+                success: false,
+                message: "survey_id is required."
+            });
+
+        }
+
+        if (!comment || !comment.trim()) {
+
+            return res.status(400).json({
+                success: false,
+                message: "Comment is required."
+            });
+
+        }
+
+        //--------------------------------------------------
+        // Add Comment
+        //--------------------------------------------------
+
+        const result = await Survey.addSurveyComment(
+            survey_id,
+            member_id,
+            comment.trim(),
+            parent_comment_id || null
+        );
+
+        //--------------------------------------------------
+        // Emit realtime update
+        //--------------------------------------------------
+
+        const io = getIO();
+
+        io.to(`survey_${survey_id}`).emit(
+            "survey_comment_added",
+            result
+        );
+
+        return res.status(200).json({
+
+            success: true,
+
+            message: parent_comment_id
+                ? "Reply added successfully."
+                : "Comment added successfully.",
+
+            data: result
+
+        });
+
+    } catch (error) {
+
+        console.error("Add Survey Comment Error:", error);
+
+        return res.status(error.statusCode || 500).json({
+
+            success: false,
+
+            message: error.message || "Internal Server Error"
+
+        });
+
+    }
+
+};
+
+
+
+const toggleCommentLike = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+
+        const { comment_id } = req.body;
+
+        //--------------------------------------------------
+        // Validation
+        //--------------------------------------------------
+
+        if (!comment_id) {
+
+            return res.status(400).json({
+                success: false,
+                message: "comment_id is required."
+            });
+
+        }
+
+        //--------------------------------------------------
+        // Toggle Comment Like
+        //--------------------------------------------------
+
+        const result = await Survey.toggleCommentLike(
+            comment_id,
+            member_id
+        );
+
+        //--------------------------------------------------
+        // Emit realtime update
+        //--------------------------------------------------
+
+        const io = getIO();
+
+        io.to(`survey_${result.survey_id}`).emit(
+            "comment_like_updated",
+            result
+        );
+
+        return res.status(200).json({
+
+            success: true,
+
+            message: result.liked
+                ? "Comment liked successfully."
+                : "Comment unliked successfully.",
+
+            data: result
+
+        });
+
+    } catch (error) {
+
+        console.error("Toggle Comment Like Error:", error);
+
+        return res.status(error.statusCode || 500).json({
+
+            success: false,
+
+            message: error.message || "Internal Server Error"
+
+        });
+
+    }
+
+};
+
+
+
+
+const testSurveyInteraction = async (req, res) => {
+
+    try {
+
+        const { comment_id } = req.body;
+
+        const result = await Survey.toggleCommentLike(
+            comment_id,
+            req.user.member_id
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: result.liked
+                ? "Comment liked successfully."
+                : "Comment unliked successfully.",
+            data: result
+        });
+
+    } catch (error) {
+
+        return res.status(error.statusCode || 500).json({
+            success: false,
+            message: error.message
+        });
+
+    }
+
+};
+
+
+const getSurveyComments = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+
+        const { survey_id } = req.params;
+
+        //--------------------------------------------------
+        // Validation
+        //--------------------------------------------------
+
+        const parsedSurveyId = Number(survey_id);
+
+        if (
+            !Number.isInteger(parsedSurveyId) ||
+            parsedSurveyId <= 0
+        ) {
+
+            return res.status(400).json({
+
+                success: false,
+
+                message: "Valid survey_id is required."
+
+            });
+
+        }
+
+        //--------------------------------------------------
+        // Fetch Comments
+        //--------------------------------------------------
+
+        const result = await Survey.getSurveyComments(
+            parsedSurveyId,
+            member_id
+        );
+
+        return res.status(200).json({
+
+            success: true,
+
+            count: result.length,
+
+            data: result
+
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Fetch Survey Comments Error:",
+            error
+        );
+
+        return res.status(
+            error.statusCode || 500
+        ).json({
+
+            success: false,
+
+            message:
+                error.message ||
+                "Internal Server Error"
+
+        });
+
+    }
+
+};
+
+const getCommentReplies = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+
+        const { comment_id } = req.params;
+
+        //--------------------------------------------------
+        // Validation
+        //--------------------------------------------------
+
+        const parsedCommentId = Number(comment_id);
+
+        if (
+            !Number.isInteger(parsedCommentId) ||
+            parsedCommentId <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid comment_id is required."
+            });
+        }
+
+        //--------------------------------------------------
+        // Fetch Replies
+        //--------------------------------------------------
+
+        const result = await Survey.getCommentReplies(
+            parsedCommentId,
+            member_id
+        );
+
+        return res.status(200).json({
+
+            success: true,
+
+            count: result.length,
+
+            data: result
+
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Fetch Comment Replies Error:",
+            error
+        );
+
+        return res.status(
+            error.statusCode || 500
+        ).json({
+
+            success: false,
+
+            message:
+                error.message ||
+                "Internal Server Error"
+
+        });
+
+    }
+
+};
+
+
+const getSurveyLikes = async (req, res) => {
+
+    try {
+
+        const { survey_id } = req.params;
+
+        const parsedSurveyId = Number(survey_id);
+
+        if (
+            !Number.isInteger(parsedSurveyId) ||
+            parsedSurveyId <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid survey_id is required."
+            });
+        }
+
+        const result = await Survey.getSurveyLikes(parsedSurveyId);
+
+        return res.status(200).json({
+            success: true,
+            count: result.length,
+            data: result
+        });
+
+    } catch (error) {
+
+        console.error("Fetch Survey Likes Error:", error);
+
+        return res.status(error.statusCode || 500).json({
+            success: false,
+            message: error.message || "Internal Server Error"
+        });
+
+    }
+
+};
+
+
 module.exports = {
     saveSurveyDetails,
     updateSurveyDetails,
     saveSurveyQuestions,
+    updateSurveyQuestions,
     previewSurvey,
     publishSurvey,
     closeSurvey,
@@ -1360,5 +1912,12 @@ module.exports = {
     getSurveyDetails,
     getSurveyQuestions,
     deleteSurveyResponse,
-    cloneSurvey
+    cloneSurvey,
+    toggleSurveyLike,
+    addSurveyComment,
+    toggleCommentLike,
+    getSurveyComments,
+    getCommentReplies,
+    testSurveyInteraction,
+    getSurveyLikes
     };

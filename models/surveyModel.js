@@ -1,4 +1,5 @@
 const db = require("../config/db");// getting the database connection
+const { aesDecrypt } = require("../utils/encryption");
 
 const createSurveyDetails = async (
     member_id,
@@ -261,6 +262,219 @@ const saveSurveyQuestions = async (
     }
 };
 
+
+const updateSurveyQuestions = async (
+    survey_id,
+    questions,
+    tags = []
+) => {
+
+    let connection;
+
+    try {
+
+        connection = await db.getConnection();
+
+        await connection.beginTransaction();
+
+        //--------------------------------------------------
+        // Check survey exists
+        //--------------------------------------------------
+
+        const [[survey]] = await connection.query(
+            `
+            SELECT id
+            FROM inp_survey
+            WHERE id = ?
+            `,
+            [survey_id]
+        );
+
+        if (!survey) {
+            throw new Error("Survey not found");
+        }
+
+        //--------------------------------------------------
+        // Delete existing options
+        //--------------------------------------------------
+
+        await connection.query(
+            `
+            DELETE o
+            FROM inp_survey_question_option o
+            INNER JOIN inp_survey_question q
+                ON o.question_id = q.id
+            WHERE q.survey_id = ?
+            `,
+            [survey_id]
+        );
+
+        //--------------------------------------------------
+        // Delete existing questions
+        //--------------------------------------------------
+
+        await connection.query(
+            `
+            DELETE FROM inp_survey_question
+            WHERE survey_id = ?
+            `,
+            [survey_id]
+        );
+
+        //--------------------------------------------------
+        // Delete existing tags
+        //--------------------------------------------------
+
+        await connection.query(
+            `
+            DELETE FROM inp_survey_tags
+            WHERE survey_id = ?
+            `,
+            [survey_id]
+        );
+
+        //--------------------------------------------------
+        // Insert Questions
+        //--------------------------------------------------
+
+        for (let i = 0; i < questions.length; i++) {
+
+            const q = questions[i];
+
+            const [questionResult] =
+                await connection.query(
+                    `
+                    INSERT INTO
+                    inp_survey_question
+                    (
+                        survey_id,
+                        question_text,
+                        question_type,
+                        question_image,
+                        is_required,
+                        question_order
+                    )
+                    VALUES
+                    (?, ?, ?, ?, ?, ?)
+                    `,
+                    [
+                        survey_id,
+                        q.question_text,
+                        q.question_type,
+                        q.question_image || null,
+                        q.is_required ? 1 : 0,
+                        i + 1
+                    ]
+                );
+
+            const question_id =
+                questionResult.insertId;
+
+            //--------------------------------------------------
+            // Insert Options
+            //--------------------------------------------------
+
+            if (
+                q.options &&
+                q.options.length > 0
+            ) {
+
+                for (
+                    let j = 0;
+                    j < q.options.length;
+                    j++
+                ) {
+
+                    await connection.query(
+                        `
+                        INSERT INTO
+                        inp_survey_question_option
+                        (
+                            survey_id,
+                            question_id,
+                            option_text,
+                            option_image,
+                            option_order
+                        )
+                        VALUES
+                        (?, ?, ?, ?, ?)
+                        `,
+                        [
+                            survey_id,
+                            question_id,
+                            q.options[j].option_text,
+                            q.options[j].option_image || null,
+                            j + 1
+                        ]
+                    );
+
+                }
+
+            }
+
+        }
+
+        //--------------------------------------------------
+        // Insert Tags
+        //--------------------------------------------------
+
+        if (
+            tags &&
+            tags.length > 0
+        ) {
+
+            for (const tag of tags) {
+
+                await connection.query(
+                    `
+                    INSERT INTO
+                    inp_survey_tags
+                    (
+                        survey_id,
+                        tag_name
+                    )
+                    VALUES
+                    (?, ?)
+                    `,
+                    [
+                        survey_id,
+                        tag
+                    ]
+                );
+
+            }
+
+        }
+
+        //--------------------------------------------------
+        // Commit
+        //--------------------------------------------------
+
+        await connection.commit();
+
+        return {
+            survey_id,
+            total_questions: questions.length
+        };
+
+    } catch (error) {
+
+        if (connection) {
+            await connection.rollback();
+        }
+
+        throw error;
+
+    } finally {
+
+        if (connection) {
+            connection.release();
+        }
+
+    }
+
+};
+
 const getSurveyPreview = async (survey_id) => {
 
     const [surveyRows] = await db.query(
@@ -275,6 +489,11 @@ const getSurveyPreview = async (survey_id) => {
             s.end_date,
             s.min_age,
             s.max_age,
+
+            s.sector AS sector_ids,
+            s.industry AS industry_ids,
+            s.country AS country_ids,
+            s.state AS state_ids,
 
             (
                 SELECT GROUP_CONCAT(g.gender_name SEPARATOR ', ')
@@ -550,11 +769,13 @@ const getCompletedSurveys = async (member_id) => {
             s.survey_image,
             s.start_date,
             s.end_date,
-                (
+
+            (
                 SELECT COUNT(*)
                 FROM inp_survey_question q
                 WHERE q.survey_id = s.id
-                ) AS reward_per_participant,
+            ) AS reward_per_participant,
+
             s.target_responses,
             s.status,
 
@@ -567,11 +788,52 @@ const getCompletedSurveys = async (member_id) => {
 
             up.job_title,
 
+            CASE
+                WHEN ss.id IS NULL THEN FALSE
+                ELSE TRUE
+            END AS is_saved,
+
             (
-    SELECT GROUP_CONCAT(tag_name ORDER BY tag_name SEPARATOR ', ')
-    FROM inp_survey_tags t
-    WHERE t.survey_id = s.id
-) AS tags
+                SELECT GROUP_CONCAT(tag_name ORDER BY tag_name SEPARATOR ', ')
+                FROM inp_survey_tags t
+                WHERE t.survey_id = s.id
+            ) AS tags,
+
+            --------------------------------------------------
+            -- Survey Likes Count
+            --------------------------------------------------
+            (
+                SELECT COUNT(*)
+                FROM inp_survey_like sl
+                WHERE sl.survey_id = s.id
+            ) AS like_count,
+
+            --------------------------------------------------
+            -- Survey Comments Count
+            --------------------------------------------------
+            (
+                SELECT COUNT(*)
+                FROM inp_survey_comment sc
+                WHERE
+                    sc.survey_id = s.id
+                    AND sc.status = 1
+            ) AS comment_count,
+
+            --------------------------------------------------
+            -- Is Survey Liked By Logged-in User
+            --------------------------------------------------
+            CASE
+                WHEN EXISTS
+                (
+                    SELECT 1
+                    FROM inp_survey_like sl
+                    WHERE
+                        sl.survey_id = s.id
+                        AND sl.member_id = ?
+                )
+                THEN TRUE
+                ELSE FALSE
+            END AS liked_by_me
 
         FROM inp_survey_participant sp
 
@@ -584,16 +846,31 @@ const getCompletedSurveys = async (member_id) => {
         LEFT JOIN user_profiles up
             ON up.u_id = u.id
 
+        LEFT JOIN inp_saved_survey ss
+            ON ss.survey_id = s.id
+            AND ss.member_id = ?
+
         WHERE
+
             sp.member_id = ?
             AND sp.status = 1
 
         ORDER BY sp.completed_at DESC
         `,
-        [member_id]
+        [
+            member_id, // liked_by_me
+            member_id, // is_saved
+            member_id  // participant
+        ]
     );
 
-    return rows;
+        return rows.map(row => ({
+        ...row,
+        is_saved: Boolean(row.is_saved),
+        liked_by_me: Boolean(row.liked_by_me),
+        like_count: Number(row.like_count),
+        comment_count: Number(row.comment_count)
+    }));
 };
 
 const getSurveyForMe = async (member_id, tab) => {
@@ -705,36 +982,69 @@ const getMySurveys = async (
     // ================= Survey Listing =================
 
     let surveyQuery = `
-        SELECT *
-        FROM inp_survey
-        WHERE member_id = ?
+        SELECT
+            s.*,
+
+            COUNT(
+                CASE
+                    WHEN sp.status = 1 THEN 1
+                END
+            ) AS responses,
+
+            CONCAT(
+                TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM
+                    ROUND(
+                        CASE
+                            WHEN s.target_responses > 0 THEN
+                                (
+                                    COUNT(
+                                        CASE
+                                            WHEN sp.status = 1 THEN 1
+                                        END
+                                    ) * 100.0
+                                ) / s.target_responses
+                            ELSE 0
+                        END,
+                        2
+                    )
+                )),
+                '%'
+            ) AS completion_rate
+
+        FROM inp_survey s
+
+        LEFT JOIN inp_survey_participant sp
+            ON s.id = sp.survey_id
+
+        WHERE s.member_id = ?
     `;
 
     const surveyParams = [member_id];
 
     if (status !== null) {
-        surveyQuery += ` AND status = ?`;
+        surveyQuery += ` AND s.status = ?`;
         surveyParams.push(status);
     }
 
     if (search) {
-        surveyQuery += ` AND survey_title LIKE ?`;
+        surveyQuery += ` AND s.survey_title LIKE ?`;
         surveyParams.push(`%${search}%`);
     }
 
     if (cursor !== null) {
-        surveyQuery += ` AND id < ?`;
+        surveyQuery += ` AND s.id < ?`;
         surveyParams.push(cursor);
     }
 
     surveyQuery += `
-        ORDER BY id DESC
+        GROUP BY s.id
+        ORDER BY s.id DESC
         LIMIT ?
     `;
 
     surveyParams.push(limit + 1);
 
-        const [rows] = await db.query(
+    const [rows] = await db.query(
         surveyQuery,
         surveyParams
     );
@@ -2443,10 +2753,868 @@ const cloneSurvey = async (survey_id, member_id) => {
 
 };
 
+const canUserInteractWithSurvey = async (
+    survey_id,
+    member_id
+) => {
+
+    const [[participant]] = await db.query(
+        `
+        SELECT
+            id,
+            status
+        FROM inp_survey_participant
+        WHERE
+            survey_id = ?
+            AND member_id = ?
+        LIMIT 1
+        `,
+        [
+            survey_id,
+            member_id
+        ]
+    );
+
+    if (!participant) {
+
+        const error = new Error(
+            "You are not a participant of this survey."
+        );
+
+        error.statusCode = 403;
+
+        throw error;
+    }
+
+    if (participant.status !== 1) {
+
+        const error = new Error(
+            "You can like or comment only after completing the survey."
+        );
+
+        error.statusCode = 403;
+
+        throw error;
+    }
+
+    return true;
+};
+
+
+const toggleSurveyLike = async (
+    survey_id,
+    member_id
+) => {
+
+    //--------------------------------------------------
+    // Check if user can interact with survey
+    //--------------------------------------------------
+
+    await canUserInteractWithSurvey(
+        survey_id,
+        member_id
+    );
+
+    //--------------------------------------------------
+    // Check if already liked
+    //--------------------------------------------------
+
+    const [[existingLike]] = await db.query(
+        `
+        SELECT
+            id
+        FROM inp_survey_like
+        WHERE
+            survey_id = ?
+            AND member_id = ?
+        LIMIT 1
+        `,
+        [
+            survey_id,
+            member_id
+        ]
+    );
+
+    const liked = !existingLike;
+
+    //--------------------------------------------------
+    // Toggle Like
+    //--------------------------------------------------
+
+    if (existingLike) {
+
+        // Unlike
+
+        await db.query(
+            `
+            DELETE
+            FROM inp_survey_like
+            WHERE id = ?
+            `,
+            [
+                existingLike.id
+            ]
+        );
+
+    } else {
+
+        // Like
+
+        await db.query(
+            `
+            INSERT INTO inp_survey_like
+            (
+                survey_id,
+                member_id
+            )
+            VALUES
+            (?, ?)
+            `,
+            [
+                survey_id,
+                member_id
+            ]
+        );
+
+    }
+
+    //--------------------------------------------------
+    // Get Updated Like Count
+    //--------------------------------------------------
+
+    const [[likeCount]] = await db.query(
+        `
+        SELECT
+            COUNT(*) AS total_likes
+        FROM inp_survey_like
+        WHERE survey_id = ?
+        `,
+        [
+            survey_id
+        ]
+    );
+
+    //--------------------------------------------------
+    // Return Response
+    //--------------------------------------------------
+
+    return {
+
+        survey_id,
+
+        member_id,
+
+        liked,
+
+        total_likes: Number(likeCount.total_likes)
+
+    };
+
+};
+
+const addSurveyComment = async (
+    survey_id,
+    member_id,
+    comment,
+    parent_comment_id = null
+) => {
+
+    //--------------------------------------------------
+    // Check if user completed survey
+    //--------------------------------------------------
+
+    await canUserInteractWithSurvey(
+        survey_id,
+        member_id
+    );
+
+    //--------------------------------------------------
+    // Validate reply comment
+    //--------------------------------------------------
+
+    if (parent_comment_id) {
+
+        const [[parentComment]] = await db.query(
+            `
+            SELECT
+                id
+            FROM inp_survey_comment
+            WHERE
+                id = ?
+                AND survey_id = ?
+                AND status = 1
+            LIMIT 1
+            `,
+            [
+                parent_comment_id,
+                survey_id
+            ]
+        );
+
+        if (!parentComment) {
+
+            const error = new Error(
+                "Parent comment not found."
+            );
+
+            error.statusCode = 404;
+
+            throw error;
+
+        }
+
+    }
+
+    //--------------------------------------------------
+    // Insert Comment
+    //--------------------------------------------------
+
+    const [result] = await db.query(
+        `
+        INSERT INTO inp_survey_comment
+        (
+            survey_id,
+            member_id,
+            parent_comment_id,
+            comment
+        )
+        VALUES
+        (?, ?, ?, ?)
+        `,
+        [
+            survey_id,
+            member_id,
+            parent_comment_id,
+            comment
+        ]
+    );
+
+    //--------------------------------------------------
+    // Return Newly Added Comment
+    //--------------------------------------------------
+
+    const [[newComment]] = await db.query(
+        `
+        SELECT
+
+            c.id,
+            c.survey_id,
+            c.member_id,
+
+            CONCAT(
+                u.first_name,
+                ' ',
+                u.last_name
+            ) AS member_name,
+
+            c.parent_comment_id,
+            c.comment,
+            c.created_at
+
+        FROM inp_survey_comment c
+
+        INNER JOIN user u
+            ON u.member_id = c.member_id
+
+        WHERE c.id = ?
+        `,
+        [
+            result.insertId
+        ]
+    );
+
+    return newComment;
+
+};
+
+
+const toggleCommentLike = async (
+    comment_id,
+    member_id
+) => {
+
+    //--------------------------------------------------
+    // Check if comment exists
+    //--------------------------------------------------
+
+    const [[comment]] = await db.query(
+        `
+        SELECT
+            id,
+            survey_id,
+            status
+        FROM inp_survey_comment
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [
+            comment_id
+        ]
+    );
+
+    if (!comment) {
+
+        const error = new Error(
+            "Comment not found."
+        );
+
+        error.statusCode = 404;
+
+        throw error;
+
+    }
+
+    if (comment.status !== 1) {
+
+        const error = new Error(
+            "This comment is no longer available."
+        );
+
+        error.statusCode = 400;
+
+        throw error;
+
+    }
+
+    //--------------------------------------------------
+    // Check if user can interact with survey
+    //--------------------------------------------------
+
+    await canUserInteractWithSurvey(
+        comment.survey_id,
+        member_id
+    );
+
+    //--------------------------------------------------
+    // Already liked?
+    //--------------------------------------------------
+
+    const [[existingLike]] = await db.query(
+        `
+        SELECT
+            id
+        FROM inp_survey_comment_like
+        WHERE
+            comment_id = ?
+            AND member_id = ?
+        LIMIT 1
+        `,
+        [
+            comment_id,
+            member_id
+        ]
+    );
+
+    const liked = !existingLike;
+
+    //--------------------------------------------------
+    // Toggle Like
+    //--------------------------------------------------
+
+    if (existingLike) {
+
+        await db.query(
+            `
+            DELETE
+            FROM inp_survey_comment_like
+            WHERE id = ?
+            `,
+            [
+                existingLike.id
+            ]
+        );
+
+    } else {
+
+        await db.query(
+            `
+            INSERT INTO inp_survey_comment_like
+            (
+                comment_id,
+                member_id
+            )
+            VALUES
+            (?, ?)
+            `,
+            [
+                comment_id,
+                member_id
+            ]
+        );
+
+    }
+
+    //--------------------------------------------------
+    // Get Updated Like Count
+    //--------------------------------------------------
+
+    const [[likeCount]] = await db.query(
+        `
+        SELECT
+            COUNT(*) AS total_likes
+        FROM inp_survey_comment_like
+        WHERE comment_id = ?
+        `,
+        [
+            comment_id
+        ]
+    );
+
+    //--------------------------------------------------
+    // Return Response
+    //--------------------------------------------------
+
+    return {
+        survey_id: comment.survey_id,
+        comment_id,
+        liked,
+        total_likes: Number(likeCount.total_likes)
+    };
+
+};
+
+
+const getSurveyComments = async (
+    survey_id,
+    member_id
+) => {
+
+    //--------------------------------------------------
+    // Check if user can interact with survey
+    //--------------------------------------------------
+
+    await canUserInteractWithSurvey(
+        survey_id,
+        member_id
+    );
+
+    //--------------------------------------------------
+    // Fetch Parent Comments
+    //--------------------------------------------------
+
+    const [rows] = await db.query(
+        `
+        SELECT
+
+            c.id AS comment_id,
+            c.survey_id,
+            c.member_id,
+
+            CONCAT_WS(
+                ' ',
+                u.first_name,
+                u.middle_name,
+                u.last_name
+            ) AS member_name,
+
+            c.comment,
+            c.created_at,
+
+            --------------------------------------------------
+            -- Like Count
+            --------------------------------------------------
+            (
+                SELECT COUNT(*)
+                FROM inp_survey_comment_like cl
+                WHERE cl.comment_id = c.id
+            ) AS like_count,
+
+            --------------------------------------------------
+            -- Reply Count
+            --------------------------------------------------
+            (
+                SELECT COUNT(*)
+                FROM inp_survey_comment r
+                WHERE
+                    r.parent_comment_id = c.id
+                    AND r.status = 1
+            ) AS reply_count,
+
+            --------------------------------------------------
+            -- Liked By Me
+            --------------------------------------------------
+            CASE
+                WHEN EXISTS
+                (
+                    SELECT 1
+                    FROM inp_survey_comment_like cl
+                    WHERE
+                        cl.comment_id = c.id
+                        AND cl.member_id = ?
+                )
+                THEN TRUE
+                ELSE FALSE
+            END AS liked_by_me
+
+        FROM inp_survey_comment c
+
+        INNER JOIN user u
+            ON u.member_id = c.member_id
+
+        WHERE
+            c.survey_id = ?
+            AND c.parent_comment_id IS NULL
+            AND c.status = 1
+
+        ORDER BY c.created_at DESC
+        `,
+        [
+            member_id,
+            survey_id
+        ]
+    );
+
+    return rows.map(row => ({
+
+        ...row,
+
+        like_count: Number(row.like_count),
+
+        reply_count: Number(row.reply_count),
+
+        liked_by_me: Boolean(row.liked_by_me)
+
+    }));
+
+};
+
+
+const getCommentReplies = async (comment_id, member_id) => {
+
+    //--------------------------------------------------
+    // Check Parent Comment
+    //--------------------------------------------------
+
+    const [[comment]] = await db.query(
+        `
+        SELECT
+            id,
+            survey_id
+        FROM inp_survey_comment
+        WHERE id = ?
+          AND status = 1
+        LIMIT 1
+        `,
+        [comment_id]
+    );
+
+    if (!comment) {
+
+        const error = new Error("Comment not found.");
+        error.statusCode = 404;
+
+        throw error;
+    }
+
+    //--------------------------------------------------
+    // Permission
+    //--------------------------------------------------
+
+    await canUserInteractWithSurvey(
+        comment.survey_id,
+        member_id
+    );
+
+    //--------------------------------------------------
+    // Fetch Reply Tree
+    //--------------------------------------------------
+
+    const [rows] = await db.query(
+        `
+        WITH RECURSIVE reply_tree AS (
+
+            SELECT
+                c.id,
+                c.parent_comment_id,
+                c.survey_id,
+                c.member_id,
+                c.comment,
+                c.created_at,
+                1 AS depth,
+                LPAD(c.id, 10, '0') AS sort_path
+
+            FROM inp_survey_comment c
+
+            WHERE
+                c.parent_comment_id = ?
+                AND c.status = 1
+
+
+            UNION ALL
+
+
+            SELECT
+                c.id,
+                c.parent_comment_id,
+                c.survey_id,
+                c.member_id,
+                c.comment,
+                c.created_at,
+                rt.depth + 1 AS depth,
+
+                CONCAT(
+                    rt.sort_path,
+                    '/',
+                    LPAD(c.id, 10, '0')
+                ) AS sort_path
+
+            FROM inp_survey_comment c
+
+            INNER JOIN reply_tree rt
+                ON c.parent_comment_id = rt.id
+
+            WHERE c.status = 1
+        )
+
+        SELECT
+
+            rt.id AS comment_id,
+            rt.parent_comment_id,
+            rt.survey_id,
+            rt.member_id,
+
+            CONCAT_WS(
+                ' ',
+                u.first_name,
+                NULLIF(u.middle_name, ''),
+                u.last_name
+            ) AS member_name,
+
+            /* Author of parent comment */
+            parent_comment.member_id AS reply_to_member_id,
+
+            /* Encrypted email of parent comment author */
+            parent_user.personal_email AS reply_to_email_encrypted,
+
+            rt.comment,
+            rt.created_at,
+            rt.depth,
+
+            (
+                SELECT COUNT(*)
+                FROM inp_survey_comment_like cl
+                WHERE cl.comment_id = rt.id
+            ) AS like_count,
+
+            (
+                SELECT COUNT(*)
+                FROM inp_survey_comment rc
+                WHERE
+                    rc.parent_comment_id = rt.id
+                    AND rc.status = 1
+            ) AS reply_count,
+
+            CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM inp_survey_comment_like cl
+                    WHERE
+                        cl.comment_id = rt.id
+                        AND cl.member_id = ?
+                )
+                THEN 1
+                ELSE 0
+            END AS liked_by_me
+
+        FROM reply_tree rt
+
+        INNER JOIN user u
+            ON u.member_id = rt.member_id
+
+        LEFT JOIN inp_survey_comment parent_comment
+            ON parent_comment.id = rt.parent_comment_id
+            AND parent_comment.status = 1
+
+        LEFT JOIN user parent_user
+            ON parent_user.member_id = parent_comment.member_id
+
+        ORDER BY rt.sort_path
+        `,
+        [
+            comment_id,
+            member_id
+        ]
+    );
+
+    //--------------------------------------------------
+    // Format + Decrypt
+    //--------------------------------------------------
+
+    const map = {};
+    const tree = [];
+
+    rows.forEach(row => {
+
+        row.depth = Number(row.depth);
+        row.like_count = Number(row.like_count);
+        row.reply_count = Number(row.reply_count);
+        row.liked_by_me = Boolean(row.liked_by_me);
+
+        let replyToEmail = null;
+
+        const encryptedValue = row.reply_to_email_encrypted;
+
+        console.log("--------------------------------");
+        console.log("Comment:", row.comment_id);
+        console.log("Reply To Member:", row.reply_to_member_id);
+        console.log("RAW EMAIL:", encryptedValue);
+        console.log("TYPE:", typeof encryptedValue);
+        console.log(
+            "BUFFER:",
+            Buffer.isBuffer(encryptedValue)
+        );
+
+        if (encryptedValue !== null && encryptedValue !== undefined) {
+
+            try {
+
+                let emailValue;
+
+                if (Buffer.isBuffer(encryptedValue)) {
+
+                    emailValue = encryptedValue.toString("utf8");
+
+                } else {
+
+                    emailValue = String(encryptedValue);
+                }
+
+                emailValue = emailValue.trim();
+
+                console.log("EMAIL VALUE:", emailValue);
+                console.log("EMAIL LENGTH:", emailValue.length);
+                console.log(
+                    "IS HEX:",
+                    /^[0-9a-fA-F]+$/.test(emailValue)
+                );
+
+                //--------------------------------------------------
+                // If encrypted hex
+                //--------------------------------------------------
+
+                if (
+                    /^[0-9a-fA-F]+$/.test(emailValue) &&
+                    emailValue.length % 2 === 0
+                ) {
+
+                    replyToEmail = aesDecrypt(emailValue);
+
+                } else {
+
+                    //--------------------------------------------------
+                    // If database contains plaintext email
+                    //--------------------------------------------------
+
+                    if (emailValue.includes("@")) {
+                        replyToEmail = emailValue;
+                    }
+                }
+
+                console.log(
+                    "FINAL EMAIL:",
+                    replyToEmail
+                );
+
+            } catch (error) {
+
+                console.error(
+                    `Email decrypt failed for member ${row.reply_to_member_id}:`,
+                    error
+                );
+
+                replyToEmail = null;
+            }
+        }
+
+        //--------------------------------------------------
+        // Response
+        //--------------------------------------------------
+
+        row.reply_to_email = replyToEmail;
+
+        row.display_comment = replyToEmail
+            ? `@${replyToEmail} ${row.comment}`
+            : row.comment;
+
+        delete row.reply_to_email_encrypted;
+
+        row.replies = [];
+
+        map[row.comment_id] = row;
+    });
+
+    //--------------------------------------------------
+    // Build Nested Tree
+    //--------------------------------------------------
+
+    rows.forEach(row => {
+
+        if (map[row.parent_comment_id]) {
+
+            map[row.parent_comment_id]
+                .replies
+                .push(row);
+
+        } else {
+
+            tree.push(row);
+        }
+    });
+
+    return tree;
+};
+
+const getSurveyLikes = async (survey_id) => {
+
+    const [rows] = await db.query(
+        `
+        SELECT
+            sl.id,
+            sl.member_id,
+
+            CONCAT_WS(
+                ' ',
+                u.first_name,
+                u.middle_name,
+                u.last_name
+            ) AS full_name,
+
+            up.profile_photo,
+            up.job_title,
+
+            tcr.company_name,
+
+            sl.created_at AS liked_at
+
+        FROM inp_survey_like sl
+
+        INNER JOIN user u
+            ON u.member_id = sl.member_id
+
+        LEFT JOIN user_profiles up
+            ON up.u_id = u.id
+
+        LEFT JOIN user_companies uc
+            ON uc.u_id = u.id
+
+        LEFT JOIN trx_company_registration tcr
+            ON tcr.company_id = uc.company_name
+
+        WHERE sl.survey_id = ?
+
+        ORDER BY sl.created_at DESC;
+        `,
+        [survey_id]
+    );
+
+    return rows;
+};
+
 module.exports = {
     createSurveyDetails,
     updateSurveyDetails,
     saveSurveyQuestions,
+    updateSurveyQuestions,
     getSurveyPreview,
     publishSurvey,
     closeSurvey,
@@ -2472,5 +3640,12 @@ module.exports = {
     getSurveyDetails,
     getSurveyQuestions,
     deleteSurveyResponse,
-    cloneSurvey
+    cloneSurvey,
+    canUserInteractWithSurvey,
+    toggleSurveyLike,
+    addSurveyComment,
+    toggleCommentLike,
+    getSurveyComments,
+    getCommentReplies,
+    getSurveyLikes
 };

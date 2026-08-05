@@ -7,24 +7,25 @@ const FetchSignupRequest = async (page = 1, limit = 15, filters = {}) => {
         let whereClauses = [];
         let params = [];
 
-        // Status filter (dropdown)
-        if (filters.status !== "" && filters.status !== undefined) {
+        // Status filter
+        if (filters.status !== "" && filters.status !== undefined && filters.status !== null) {
             whereClauses.push("status = ?");
             params.push(filters.status);
         } else {
-            // Default: only pending
-            whereClauses.push("status = 0");
+            // Default: Pending + Rejected
+            whereClauses.push("status IN (0, 2)");
         }
 
-        // Optional filters
+        // Name filter
         if (filters.full_name) {
             whereClauses.push("full_name LIKE ?");
             params.push(`%${filters.full_name}%`);
         }
 
-        if (filters.email) {
-            whereClauses.push("email LIKE ?");
-            params.push(`%${filters.email}%`);
+        // LinkedIn filter
+        if (filters.linkedin) {
+            whereClauses.push("linkedin LIKE ?");
+            params.push(`%${filters.linkedin}%`);
         }
 
         // Date range filter
@@ -33,59 +34,84 @@ const FetchSignupRequest = async (page = 1, limit = 15, filters = {}) => {
             params.push(filters.start_date, filters.end_date);
         }
 
-        // Construct WHERE clause
-        const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
+        const whereSql =
+            whereClauses.length > 0
+                ? `WHERE ${whereClauses.join(" AND ")}`
+                : "";
 
-        // Main query — select required columns
         const sql = `
-            SELECT id, full_name, email, status, created_at
-            FROM inp_signup_request
+            SELECT
+                id,
+                full_name,
+                email,
+                linkedin,
+                status,
+                created_at
+            FROM signup_request
             ${whereSql}
             ORDER BY id DESC
             LIMIT ? OFFSET ?
         `;
 
-        params.push(limit, offset);
+        const queryParams = [...params, limit, offset];
 
-        const [rows] = await db.query(sql, params);
+        // ================= DEBUG =================
+        console.log("\n========== MODEL DEBUG ==========");
+        console.log("Filters:", filters);
+        console.log("Where SQL:", whereSql);
+        console.log("Params:", params);
+        console.log("Query Params:", queryParams);
+        console.log("SQL:", sql);
+        console.log("=================================\n");
+        // =========================================
 
-        // Format created_at and map status
+        const [rows] = await db.query(sql, queryParams);
+
+        console.log("Rows Returned:", rows);
+
         const formattedRows = rows.map(row => ({
             id: row.id,
             full_name: row.full_name,
             email: row.email,
-            status: row.status === 0 ? "Pending" : row.status === 1 ? "Approved" : "Rejected",
-            created_at: row.created_at.toISOString().split('T')[0] // YYYY-MM-DD
+            linkedin: row.linkedin,
+            status:
+                row.status === 0
+                    ? "Pending"
+                    : row.status === 2
+                    ? "Rejected"
+                    : "Approved",
+            created_at: row.created_at.toISOString().split("T")[0]
         }));
 
-        // Count total records for pagination
-        const [countRows] = await db.query(
-            `SELECT COUNT(*) as total FROM inp_signup_request ${whereSql}`,
-            params.slice(0, -2)
-        );
+        const countSql = `
+            SELECT COUNT(*) AS total
+            FROM signup_request
+            ${whereSql}
+        `;
 
-        const total = countRows[0]?.total || 0;
+        const [countRows] = await db.query(countSql, params);
 
         return {
             data: formattedRows,
             pagination: {
-                total,
+                total: countRows[0].total,
                 page,
                 limit,
-                totalPages: Math.ceil(total / limit),
+                totalPages: Math.ceil(countRows[0].total / limit),
             },
         };
     } catch (error) {
+        console.error("Model Error:", error);
         throw error;
     }
 };
 
 
 
-const ApproveSignupRequest = async (id) => {
+const ApproveMembership = async (id) => {
     try {
         const sql = `
-            UPDATE inp_signup_request 
+            UPDATE signup_request 
             SET status = 1, updated_at = NOW() 
             WHERE id = ?
         `;
@@ -106,10 +132,10 @@ const ApproveSignupRequest = async (id) => {
     }
 };
 
-const RejectSignupRequest = async (id, rejection_reason) => {
+const RejectMembership = async (id, rejection_reason) => {
     try {
         const sql = `
-            UPDATE inp_signup_request 
+            UPDATE signup_request 
             SET status = 2, rejection_reason = ?, updated_at = NOW() 
             WHERE id = ?
         `;
@@ -135,6 +161,6 @@ const RejectSignupRequest = async (id, rejection_reason) => {
 
 module.exports = {
     FetchSignupRequest,
-    ApproveSignupRequest,
-    RejectSignupRequest
+    ApproveMembership,
+    RejectMembership
 };

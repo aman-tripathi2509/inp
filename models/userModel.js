@@ -752,7 +752,7 @@ const getWorkStatus = async () => {
 const getProfessionType = async () => {
     try {
         const sql = `
-            SELECT answer 
+            SELECT question_answer_id,answer 
             FROM lu_question_answer 
             WHERE question_id = 66
             ORDER BY question_answer_id ASC
@@ -838,7 +838,7 @@ const getStatesByCountryId = async (countryIds) => {
 const getSeniorityLevel = async () => {
     try {
         const sql = `
-            SELECT answer 
+            SELECT question_answer_id,answer 
             FROM lu_question_answer 
             WHERE question_id = 59
             ORDER BY question_answer_id ASC

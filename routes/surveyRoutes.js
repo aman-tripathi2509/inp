@@ -5,6 +5,7 @@ const {
     saveSurveyDetails,
     updateSurveyDetails,
     saveSurveyQuestions,
+    updateSurveyQuestions,
     previewSurvey,
     publishSurvey,
     closeSurvey,
@@ -28,7 +29,14 @@ const {
     deleteSurveyResponse,
     previewSubmittedSurvey,
     completeSurvey,
-    cloneSurvey
+    cloneSurvey,
+    toggleSurveyLike,
+    addSurveyComment,
+    toggleCommentLike,
+    getSurveyComments,
+    getSurveyLikes,
+    testSurveyInteraction,
+    getCommentReplies
 } = require("../controllers/surveyController");
 
 const {
@@ -67,6 +75,13 @@ router.post(
     authMiddleware,
     uploadSurveyImages,
     saveSurveyQuestions
+);
+
+router.put(
+    "/update-survey-questions/:survey_id",
+    authMiddleware,
+    uploadSurveyImages,
+    updateSurveyQuestions
 );
 
 // Preview Survey
@@ -233,5 +248,47 @@ router.post(
     cloneSurvey
 );
 
+
+router.post(
+    "/like-OnSurvey",
+    authMiddleware,
+    toggleSurveyLike
+);
+
+router.post(
+    "/comment-OnSurvey",
+    authMiddleware,
+    addSurveyComment
+);
+
+router.post(
+    "/like-OnComment",
+    authMiddleware,
+    toggleCommentLike
+);
+
+router.get(
+    "/survey-comments/:survey_id",
+    authMiddleware,
+    getSurveyComments
+);
+
+router.get(
+    "/comment-replies/:comment_id",
+    authMiddleware,
+    getCommentReplies
+);
+
+router.get(
+    "/fetch-survey-likes/:survey_id",
+    authMiddleware,
+    getSurveyLikes
+);
+
+router.post(
+    "/test-survey-interaction",
+    authMiddleware,
+    testSurveyInteraction
+);
 
 module.exports = router;
