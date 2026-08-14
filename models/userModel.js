@@ -1,5 +1,5 @@
 const db = require("../config/db");
-const { aesEncrypt } = require("../utils/encryption");
+const { aesEncrypt, aesDecrypt } = require("../utils/encryption");
 const crypto = require("crypto");
 
 
@@ -276,235 +276,451 @@ const loginUser = async (identifier) => {
     }
 };
 
-/*--------------------------------------------------------------
-    Function to fetch all I&P Users
---------------------------------------------------------------*/
-const fetch_users = async (filters, page = 1, limit = 15) => {
+// Get complete user details by member_id
+const getLoggedinUser = async (member_id) => {
     try {
-        if (filters instanceof FormData) {
-            const obj = {};
-            for (let [key, value] of filters.entries()) {
-                obj[key] = value;
-            }
-            filters = obj;
-        }
-        let baseSql = `FROM user WHERE 1=1`;
-        const params = [];
-        // Global search across multiple columns
-        if (filters.global_search) {
-            const searchTerm = `%${filters.global_search.toLowerCase()}%`;
-            baseSql += ` AND (
-                LOWER(CONCAT_WS(' ', first_name, middle_name, last_name)) LIKE ?
-                OR LOWER(country) LIKE ?
-                OR LOWER(state) LIKE ?
-                OR LOWER(Job_title) LIKE ?
-                OR LOWER(sector) LIKE ?
-                OR LOWER(industry) LIKE ?
-            )`;
-            params.push(searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
-        }
-        if (filters.name) {
-            baseSql += ` AND CONCAT_WS(' ', first_name, middle_name, last_name) LIKE ?`;
-            params.push(`%${filters.name}%`);
-        }
-        if (filters.Job_title) {
-            baseSql += ` AND Job_title LIKE ?`;
-            params.push(`%${filters.Job_title}%`);
-        }
-        // Open-ended location search (matches country OR state)
-        if (filters.location) {
-            baseSql += ` AND (LOWER(country) LIKE ? OR LOWER(state) LIKE ?)`;
-            const loc = `%${filters.location.toLowerCase()}%`;
-            params.push(loc, loc);
-        }
-        if (filters.industry) {
-            baseSql += ` AND industry LIKE ?`;
-            params.push(`%${filters.industry}%`);
-        }
-        // Prevent DB query when no filters are applied
-        if (params.length === 0) {
-            return {
-                totalRecords: 0,
-                totalPages: 0,
-                currentPage: page,
-                data: []
-            };
-        }
-        // Count total records
-        const countSql = `SELECT COUNT(*) as total ${baseSql}`;
-        const [countRows] = await db.query(countSql, params);
-        const totalRecords = countRows[0].total;
-        const offset = (page - 1) * limit;
-        // Fetch paginated data
-        const dataSql = `
-            SELECT 
-                member_id, 
-                first_name, 
-                middle_name, 
-                last_name, 
-                country, 
-                state,
-                Job_title, 
-                sector, 
-                industry
-            ${baseSql}
-            LIMIT ? OFFSET ?
+        const sql = `
+            SELECT
+                -- ================= USER =================
+                u.id,
+                u.member_id,
+                u.first_name,
+                u.middle_name,
+                u.last_name,
+                u.work_email,
+                u.personal_email,
+                u.mobile,
+                u.email_verified,
+                u.dob,
+                u.year_of_birth,
+                u.age_entered,
+                    u.gender,
+                    CASE
+                    WHEN u.gender = 1 THEN 'Male'
+                    WHEN u.gender = 2 THEN 'Female'
+                    WHEN u.gender = 3 THEN 'Others'
+                    ELSE NULL
+                    END AS gender_name,
+                u.country,
+                c.country_name,
+                u.state,
+                s.state_name,
+                u.city,
+                u.zip_code,
+                u.mailing_address,
+                    u.user_id AS added_by,
+                    CONCAT(lu.first_name, ' ', lu.last_name) AS added_by_name,
+                u.status,
+                DATE_FORMAT(u.created_on, '%d-%m-%Y') AS created_on,
+
+                -- ================= USER PROFILE =================
+                up.profile_photo,
+
+                up.highest_education,
+                highestEducation.answer AS highest_education_name,
+
+                up.household_income,
+                householdIncome.answer AS household_income_name,
+
+                up.skills,
+
+                up.work_status,
+                workStatus.answer AS work_status_name,
+
+                up.employement_status,
+                employmentStatus.answer AS employement_status_name,
+
+                up.profession_type,
+                professionType.answer AS profession_type_name,
+
+                up.job_title,
+
+                up.work_experience,
+                workExperience.answer AS work_experience_name,
+
+                up.seniority_level,
+                seniorityLevel.answer AS seniority_level_name,
+
+                up.job_responsibility,
+                jobResponsibility.answer AS job_responsibility_name,
+
+                up.work_ex_c_company,
+                workExCompany.answer AS work_ex_c_company_name,
+
+                up.sector,
+                sectorAnswer.answer AS sector_name,
+
+                up.industry,
+                industryAnswer.answer AS industry_name,
+
+                up.department,
+                departmentAnswer.answer AS department_name,
+
+                up.function,
+                functionAnswer.answer AS function_name,
+
+                up.previous_employement,
+
+                up.linkedin,
+                up.facebook,
+                up.insta,
+                up.x,
+                up.about_user,
+
+                -- ================= USER COMPANY =================
+                uc.company_name,
+                tcr.company_name AS current_company_name,
+
+                    CASE
+                        WHEN uc.u_id IS NOT NULL THEN 1
+                        ELSE 0
+                    END AS company_details_added,
+
+                uc.company_url,
+
+                uc.business_model,
+                businessModel.answer AS business_model_name,
+
+                uc.company_revenue,
+                companyRevenue.answer AS company_revenue_name,
+
+                uc.company_type,
+                companyType.answer AS company_type_name,
+
+                uc.company_size,
+                companySize.answer AS company_size_name,
+
+                uc.headquarter,
+                uc.company_linkedin,
+                uc.about_company
+
+            FROM user u
+
+            LEFT JOIN user_profiles up
+                ON up.u_id = u.id
+
+            LEFT JOIN user_companies uc
+                ON uc.u_id = u.id
+
+            LEFT JOIN country c
+                ON c.id = u.country
+
+            LEFT JOIN trx_state s
+                ON s.state_id = u.state
+
+            LEFT JOIN lu_user lu
+                ON lu.user_id = u.user_id
+
+            LEFT JOIN trx_company_registration tcr
+                ON tcr.company_id = CAST(uc.company_name AS UNSIGNED)
+
+            LEFT JOIN lu_question_answer professionType
+                ON professionType.question_answer_id = CAST(up.profession_type AS UNSIGNED)
+
+            LEFT JOIN lu_question_answer seniorityLevel
+                ON seniorityLevel.question_answer_id = CAST(up.seniority_level AS UNSIGNED)
+
+            LEFT JOIN lu_question_answer sectorAnswer
+                ON sectorAnswer.question_answer_id = CAST(up.sector AS UNSIGNED)
+
+            LEFT JOIN lu_question_answer industryAnswer
+                ON industryAnswer.question_answer_id = CAST(up.industry AS UNSIGNED)
+
+            LEFT JOIN lu_question_answer highestEducation
+                ON highestEducation.question_answer_id = CAST(up.highest_education AS UNSIGNED)
+
+            LEFT JOIN lu_question_answer householdIncome
+                ON householdIncome.question_answer_id = CAST(up.household_income AS UNSIGNED)
+
+            LEFT JOIN lu_question_answer workStatus
+                ON workStatus.question_answer_id = CAST(up.work_status AS UNSIGNED)
+
+            LEFT JOIN lu_question_answer employmentStatus
+                ON employmentStatus.question_answer_id = CAST(up.employement_status AS UNSIGNED)
+
+            LEFT JOIN lu_question_answer workExperience
+                ON workExperience.question_answer_id = CAST(up.work_experience AS UNSIGNED)
+
+            LEFT JOIN lu_question_answer jobResponsibility
+                ON jobResponsibility.question_answer_id = CAST(up.job_responsibility AS UNSIGNED)
+
+            LEFT JOIN lu_question_answer workExCompany
+                ON workExCompany.question_answer_id = CAST(up.work_ex_c_company AS UNSIGNED)
+
+            LEFT JOIN lu_question_answer departmentAnswer
+                ON departmentAnswer.question_answer_id = CAST(up.department AS UNSIGNED)
+
+            LEFT JOIN lu_question_answer functionAnswer
+                ON functionAnswer.question_answer_id = CAST(up.function AS UNSIGNED)
+
+            LEFT JOIN lu_question_answer businessModel
+                ON businessModel.question_answer_id = CAST(uc.business_model AS UNSIGNED)
+
+            LEFT JOIN lu_question_answer companySize
+                ON companySize.question_answer_id = CAST(uc.company_size AS UNSIGNED)
+
+            LEFT JOIN lu_question_answer companyRevenue
+                ON companyRevenue.question_answer_id = CAST(uc.company_revenue AS UNSIGNED)
+
+            LEFT JOIN lu_question_answer companyType
+                ON companyType.question_answer_id = CAST(uc.company_type AS UNSIGNED)
+
+            WHERE u.member_id = ?
+
+            LIMIT 1
         `;
-        const dataParams = [...params, limit, offset];
-        const [rows] = await db.query(dataSql, dataParams);
-        return {
-            totalRecords,
-            totalPages: Math.ceil(totalRecords / limit),
-            currentPage: page,
-            data: rows
-        };
+
+        const [rows] = await db.query(sql, [member_id]);
+
+        return rows;
+
     } catch (error) {
         throw error;
     }
 };
 
 /*--------------------------------------------------------------
-    Get user details by member_id
+    Upload / Update User Profile Photo
 --------------------------------------------------------------*/
-const fetch_userDetail = async (member_id) => {
+const updateProfilePhoto = async (member_id, photoPath) => {
+
+    const conn = await db.getConnection();
+
     try {
-        const sql = `
-            SELECT * 
-            FROM user
-            WHERE member_id = ?
-        `;
-        const [rows] = await db.query(sql, [member_id]);
-        return rows;
+
+        await conn.beginTransaction();
+
+        // Get user ID using member_id
+        const [userRows] = await conn.query(
+            `SELECT id
+             FROM user
+             WHERE member_id = ?
+             LIMIT 1`,
+            [member_id]
+        );
+
+        if (userRows.length === 0) {
+            throw new Error("User not found");
+        }
+
+        const userId = userRows[0].id;
+
+        // Check whether user profile already exists
+        const [profileRows] = await conn.query(
+            `SELECT id, profile_photo
+             FROM user_profiles
+             WHERE u_id = ?
+             LIMIT 1`,
+            [userId]
+        );
+
+        let oldPhoto = null;
+
+        if (profileRows.length > 0) {
+
+            // Existing photo
+            oldPhoto = profileRows[0].profile_photo;
+
+            // Update photo
+            await conn.query(
+                `UPDATE user_profiles
+                 SET profile_photo = ?
+                 WHERE u_id = ?`,
+                [
+                    photoPath,
+                    userId
+                ]
+            );
+
+        } else {
+
+            // Profile doesn't exist → create it
+            await conn.query(
+                `INSERT INTO user_profiles
+                 (
+                     u_id,
+                     profile_photo
+                 )
+                 VALUES (?, ?)`,
+                [
+                    userId,
+                    photoPath
+                ]
+            );
+        }
+
+        await conn.commit();
+
+        return {
+            success: true,
+            oldPhoto: oldPhoto,
+            newPhoto: photoPath
+        };
+
     } catch (error) {
+
+        await conn.rollback();
         throw error;
+
+    } finally {
+
+        conn.release();
     }
 };
+
 
 /*--------------------------------------------------------------
     Function to Update User's data
 --------------------------------------------------------------*/
-async function updateUserData(data) {
+async function updateUserData(member_id, data) {
     const conn = await db.getConnection();
 
     try {
-        if (!data.member_id) throw new Error("member_id is required");
+
+        if (!member_id) {
+            throw new Error("member_id is required");
+        }
 
         await conn.beginTransaction();
 
         // -------------------------------
-        // 1. GET USER ID (udd_id)
+        // 1. GET USER ID
         // -------------------------------
         const [userRow] = await conn.query(
             "SELECT id FROM user WHERE member_id = ?",
-            [data.member_id]
+            [member_id]
         );
 
         if (userRow.length === 0) {
             throw new Error("User not found");
         }
 
-        const udd_id = userRow[0].id;
+        const u_id = userRow[0].id;
 
         // -------------------------------
-        // 2. UPDATE MAIN TABLE
+        // 2. UPDATE MAIN USER TABLE
         // -------------------------------
         const mainFields = [];
         const mainValues = [];
 
-        if (data.name) {
-            const parts = data.name.trim().split(/\s+/);
-
-            const first = parts[0] || "";
-            const middle = parts.length > 2 ? parts[1] : "";
-            const last =
-                parts.length === 2
-                    ? parts[1]
-                    : parts.length > 2
-                    ? parts.slice(2).join(" ")
-                    : "";
-
-            mainFields.push(
-                "first_name = ?",
-                "middle_name = ?",
-                "last_name = ?"
-            );
-
-            mainValues.push(
-                aesEncrypt(first),
-                aesEncrypt(middle),
-                aesEncrypt(last)
-            );
+        // First Name
+        if (data.first_name !== undefined) {
+            mainFields.push("first_name = ?");
+            mainValues.push(data.first_name || null);
         }
 
-        if (data.work_email) {
+        // Middle Name
+        if (data.middle_name !== undefined) {
+            mainFields.push("middle_name = ?");
+            mainValues.push(data.middle_name || null);
+        }
+
+        // Last Name
+        if (data.last_name !== undefined) {
+            mainFields.push("last_name = ?");
+            mainValues.push(data.last_name || null);
+        }
+
+        // Work Email
+        if (data.work_email !== undefined) {
             mainFields.push("work_email = ?");
-            mainValues.push(data.work_email);
+            mainValues.push(
+                data.work_email
+                    ? aesEncrypt(data.work_email)
+                    : null
+            );
         }
 
-        if (data.mobile) {
+        // Mobile
+        if (data.mobile !== undefined) {
             mainFields.push("mobile = ?");
-            mainValues.push(data.mobile);
+            mainValues.push(
+                data.mobile
+                    ? aesEncrypt(data.mobile)
+                    : null
+            );
         }
 
-        if (data.gender) {
+        // Gender
+        if (data.gender !== undefined) {
             mainFields.push("gender = ?");
-            mainValues.push(data.gender);
+            mainValues.push(data.gender || null);
         }
 
-        if (data.dob) {
+        // DOB
+        if (data.dob !== undefined) {
             mainFields.push("dob = ?");
-            mainValues.push(data.dob);
+            mainValues.push(data.dob || null);
         }
 
-        if (data.country) {
+        // Year of Birth
+        if (data.year_of_birth !== undefined) {
+            mainFields.push("year_of_birth = ?");
+            mainValues.push(data.year_of_birth || null);
+        }
+
+        // Age
+        if (data.age_entered !== undefined) {
+            mainFields.push("age_entered = ?");
+            mainValues.push(data.age_entered || null);
+        }
+
+        // Country
+        if (data.country !== undefined) {
             mainFields.push("country = ?");
-            mainValues.push(data.country);
+            mainValues.push(data.country || null);
         }
 
-        if (data.state) {
+        // State
+        if (data.state !== undefined) {
             mainFields.push("state = ?");
-            mainValues.push(data.state);
+            mainValues.push(data.state || null);
         }
 
-        if (data.enter_city) {
+        // City
+        if (data.city !== undefined) {
             mainFields.push("city = ?");
-            mainValues.push(data.enter_city);
+            mainValues.push(data.city || null);
         }
 
-        if (data.zip_code) {
+        if (data.zip_code !== undefined) {
             mainFields.push("zip_code = ?");
-            mainValues.push(data.zip_code);
+            mainValues.push(data.zip_code || null);
         }
 
-        if (data.mailing_address) {
+        // Mailing Address
+        if (data.mailing_address !== undefined) {
             mainFields.push("mailing_address = ?");
-            mainValues.push(data.mailing_address);
+            mainValues.push(data.mailing_address || null);
         }
 
         if (mainFields.length > 0) {
-            mainValues.push(data.member_id);
+
+            mainValues.push(member_id);
 
             await conn.query(
-                `UPDATE user 
-                 SET ${mainFields.join(", ")} 
+                `UPDATE user
+                 SET ${mainFields.join(", ")}
                  WHERE member_id = ?`,
                 mainValues
             );
         }
 
         // -------------------------------
-        // 3. META TABLE (INSERT / UPDATE)
+        // 3. USER PROFILE
         // -------------------------------
+
         const [meta] = await conn.query(
-            "SELECT id FROM user_profiles WHERE udd_id = ?",
-            [udd_id]
+            "SELECT id FROM user_profiles WHERE u_id = ?",
+            [u_id]
         );
 
         if (meta.length === 0) {
+
             await conn.query(
-                `INSERT INTO user_profiles 
+                `INSERT INTO user_profiles
                 (
-                    udd_id,
+                    u_id,
                     profile_photo,
                     highest_education,
                     household_income,
@@ -517,7 +733,8 @@ async function updateUserData(data) {
                     seniority_level,
                     job_responsibility,
                     work_ex_c_company,
-                    sector_industry,
+                    sector,
+                    industry,
                     department,
                     function,
                     previous_employement,
@@ -528,7 +745,7 @@ async function updateUserData(data) {
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
-                    udd_id,
+                    u_id,
                     data.profile_photo || null,
                     data.highest_education || null,
                     data.household_income || null,
@@ -541,7 +758,8 @@ async function updateUserData(data) {
                     data.seniority_level || null,
                     data.job_responsibility || null,
                     data.work_ex_c_company || null,
-                    data.sector_industry || null,
+                    data.sector || null,
+                    data.industry || null,
                     data.department || null,
                     data.function || null,
                     data.previous_employement || null,
@@ -551,7 +769,9 @@ async function updateUserData(data) {
                     data.about_user || null
                 ]
             );
+
         } else {
+
             await conn.query(
                 `UPDATE user_profiles SET
                     profile_photo = ?,
@@ -566,7 +786,8 @@ async function updateUserData(data) {
                     seniority_level = ?,
                     job_responsibility = ?,
                     work_ex_c_company = ?,
-                    sector_industry = ?,
+                    sector = ?,
+                    industry = ?,
                     department = ?,
                     function = ?,
                     previous_employement = ?,
@@ -574,7 +795,7 @@ async function updateUserData(data) {
                     insta = ?,
                     x = ?,
                     about_user = ?
-                 WHERE udd_id = ?`,
+                 WHERE u_id = ?`,
                 [
                     data.profile_photo || null,
                     data.highest_education || null,
@@ -588,7 +809,8 @@ async function updateUserData(data) {
                     data.seniority_level || null,
                     data.job_responsibility || null,
                     data.work_ex_c_company || null,
-                    data.sector_industry || null,
+                    data.sector || null,
+                    data.industry || null,
                     data.department || null,
                     data.function || null,
                     data.previous_employement || null,
@@ -596,24 +818,26 @@ async function updateUserData(data) {
                     data.insta || null,
                     data.x || null,
                     data.about_user || null,
-                    udd_id
+                    u_id
                 ]
             );
         }
 
         // -------------------------------
-        // 4. COMPANY TABLE (INSERT / UPDATE)
+        // 4. USER COMPANY
         // -------------------------------
+
         const [comp] = await conn.query(
-            "SELECT id FROM user_companies WHERE udd_id = ?",
-            [udd_id]
+            "SELECT id FROM user_companies WHERE u_id = ?",
+            [u_id]
         );
 
         if (comp.length === 0) {
+
             await conn.query(
-                `INSERT INTO user_companies 
+                `INSERT INTO user_companies
                 (
-                    udd_id,
+                    u_id,
                     company_name,
                     company_url,
                     company_revenue,
@@ -626,7 +850,7 @@ async function updateUserData(data) {
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
-                    udd_id,
+                    u_id,
                     data.company_name || null,
                     data.company_url || null,
                     data.company_revenue || null,
@@ -638,7 +862,9 @@ async function updateUserData(data) {
                     data.about_company || null
                 ]
             );
+
         } else {
+
             await conn.query(
                 `UPDATE user_companies SET
                     company_name = ?,
@@ -650,7 +876,7 @@ async function updateUserData(data) {
                     headquarter = ?,
                     company_linkedin = ?,
                     about_company = ?
-                 WHERE udd_id = ?`,
+                 WHERE u_id = ?`,
                 [
                     data.company_name || null,
                     data.company_url || null,
@@ -661,51 +887,114 @@ async function updateUserData(data) {
                     data.headquarter || null,
                     data.company_linkedin || null,
                     data.about_company || null,
-                    udd_id
+                    u_id
                 ]
             );
         }
 
         await conn.commit();
 
-        return { success: true };
+        return {
+            success: true
+        };
 
     } catch (err) {
+
         await conn.rollback();
         throw err;
+
     } finally {
+
         conn.release();
+
     }
 }
 
+
 /*--------------------------------------------------------------
-    Function to fetch employees by company_id
+    Change Password
 --------------------------------------------------------------*/
-const getEmployeesByCompany = async (company_id) => {
+const changeUserPassword = async (
+    member_id,
+    current_password,
+    new_password
+) => {
     try {
-        if (!company_id) {
-            throw new Error("Company ID is required");
+        // Get current encrypted password
+        const [rows] = await db.query(
+            `SELECT id, password
+             FROM user
+             WHERE member_id = ?
+             LIMIT 1`,
+            [member_id]
+        );
+
+        if (rows.length === 0) {
+            return {
+                success: false,
+                code: "USER_NOT_FOUND"
+            };
         }
-        const sql = `
-            SELECT 
-                id,
-                member_id,
-                first_name,
-                middle_name,
-                last_name,
-                job_title,
-                twitter,
-                instagram,
-                linkedin,
-                about_user
-            FROM user 
-            WHERE current_company = ? AND current_company IS NOT NULL
-            ORDER BY first_name, last_name
-        `;
-        const [rows] = await db.query(sql, [company_id]);
-        return rows;
+
+        const user = rows[0];
+
+        // Decrypt existing password
+        let decryptedPassword;
+
+        try {
+            decryptedPassword = aesDecrypt(user.password);
+        } catch (error) {
+            console.error("Password decryption error:", error);
+
+            return {
+                success: false,
+                code: "PASSWORD_DECRYPT_FAILED"
+            };
+        }
+
+        // Check current password
+        if (current_password !== decryptedPassword) {
+            return {
+                success: false,
+                code: "INVALID_CURRENT_PASSWORD"
+            };
+        }
+
+        // Prevent using the same password
+        if (current_password === new_password) {
+            return {
+                success: false,
+                code: "SAME_PASSWORD"
+            };
+        }
+
+        // Encrypt new password using existing project method
+        const encryptedNewPassword = aesEncrypt(new_password);
+
+        // Update password
+        const [result] = await db.query(
+            `UPDATE user
+             SET password = ?,
+                 updated_on = CURRENT_TIMESTAMP
+             WHERE member_id = ?`,
+            [
+                encryptedNewPassword,
+                member_id
+            ]
+        );
+
+        if (result.affectedRows === 0) {
+            return {
+                success: false,
+                code: "UPDATE_FAILED"
+            };
+        }
+
+        return {
+            success: true
+        };
+
     } catch (error) {
-        console.error("Error fetching employees by company:", error);
         throw error;
     }
 };
@@ -1056,6 +1345,200 @@ const getSignupRequestByEmail = async (email) => {
         throw error;
     }
 };
+
+/*--------------------------------------------------------------
+    Get 2FA Status
+--------------------------------------------------------------*/
+const getTwoFactorStatus = async (u_id) => {
+    try {
+
+        const [rows] = await db.query(
+            `SELECT
+                id,
+                u_id,
+                is_enabled
+             FROM user_two_factor_auth
+             WHERE u_id = ?
+             LIMIT 1`,
+            [u_id]
+        );
+
+        if (rows.length === 0) {
+            return {
+                exists: false,
+                is_enabled: false
+            };
+        }
+
+        return {
+            exists: true,
+            is_enabled: rows[0].is_enabled === 1
+        };
+
+    } catch (error) {
+        throw error;
+    }
+};
+
+
+/*--------------------------------------------------------------
+    Get User 2FA Secret
+--------------------------------------------------------------*/
+const getTwoFactorSecret = async (u_id) => {
+    try {
+
+        const [rows] = await db.query(
+            `SELECT
+                id,
+                u_id,
+                is_enabled,
+                secret
+             FROM user_two_factor_auth
+             WHERE u_id = ?
+             LIMIT 1`,
+            [u_id]
+        );
+
+        return rows;
+
+    } catch (error) {
+        throw error;
+    }
+};
+
+/*--------------------------------------------------------------
+    Create / Get 2FA Secret
+--------------------------------------------------------------*/
+const createTwoFactorSecret = async (u_id, secret) => {
+    try {
+
+        // Check whether user already has a 2FA record
+        const [existing] = await db.query(
+            `SELECT id, is_enabled, secret
+             FROM user_two_factor_auth
+             WHERE u_id = ?
+             LIMIT 1`,
+            [u_id]
+        );
+
+        // If record already exists
+        if (existing.length > 0) {
+
+            // If 2FA is already enabled, don't generate a new secret
+            if (existing[0].is_enabled === 1) {
+                return {
+                    success: false,
+                    code: "ALREADY_ENABLED"
+                };
+            }
+
+            // Update existing secret
+            await db.query(
+                `UPDATE user_two_factor_auth
+                 SET secret = ?,
+                     updated_on = CURRENT_TIMESTAMP
+                 WHERE u_id = ?`,
+                [secret, u_id]
+            );
+
+            return {
+                success: true,
+                id: existing[0].id
+            };
+        }
+
+        // Create new 2FA record
+        const [result] = await db.query(
+            `INSERT INTO user_two_factor_auth
+             (
+                u_id,
+                is_enabled,
+                secret,
+                created_on,
+                updated_on
+             )
+             VALUES (?, 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [
+                u_id,
+                secret
+            ]
+        );
+
+        return {
+            success: true,
+            id: result.insertId
+        };
+
+    } catch (error) {
+        throw error;
+    }
+};
+
+/*--------------------------------------------------------------
+    Verify 2FA OTP
+--------------------------------------------------------------*/
+const verifyTwoFactorOTP = async (u_id, otp) => {
+    try {
+
+        const [rows] = await db.query(
+            `SELECT
+                id,
+                u_id,
+                is_enabled,
+                secret
+             FROM user_two_factor_auth
+             WHERE u_id = ?
+             LIMIT 1`,
+            [u_id]
+        );
+
+        if (rows.length === 0) {
+            return {
+                success: false,
+                code: "2FA_NOT_SETUP"
+            };
+        }
+
+        if (!rows[0].secret) {
+            return {
+                success: false,
+                code: "SECRET_NOT_FOUND"
+            };
+        }
+
+        return {
+            success: true,
+            secret: rows[0].secret,
+            is_enabled: rows[0].is_enabled
+        };
+
+    } catch (error) {
+        throw error;
+    }
+};
+
+
+/*--------------------------------------------------------------
+    Enable 2FA
+--------------------------------------------------------------*/
+const enableTwoFactor = async (u_id) => {
+    try {
+
+        const [result] = await db.query(
+            `UPDATE user_two_factor_auth
+             SET is_enabled = 1,
+                 updated_on = CURRENT_TIMESTAMP
+             WHERE u_id = ?`,
+            [u_id]
+        );
+
+        return result.affectedRows > 0;
+
+    } catch (error) {
+        throw error;
+    }
+};
+
 /*--------------------------------------------------------------
     Exporting the Functions
 --------------------------------------------------------------*/
@@ -1063,10 +1546,12 @@ module.exports = {
     createUser,
     getUserByEmail,
     loginUser,
-    fetch_users,
-    fetch_userDetail,
+
+    getLoggedinUser,
+    updateProfilePhoto,
     updateUserData,
-    getEmployeesByCompany,
+    changeUserPassword,
+
     getHighestEducation,
     getStatesByCountryId,
     getWorkStatus,
@@ -1082,7 +1567,14 @@ module.exports = {
     getEmployementStatus,
     getDepartment,
     getFunctionByDepartment,
+
     validateReferral,
     createSignupRequest,
-    getSignupRequestByEmail
+    getSignupRequestByEmail,
+
+    getTwoFactorStatus,
+    getTwoFactorSecret,
+    createTwoFactorSecret,
+    verifyTwoFactorOTP,
+    enableTwoFactor
     };

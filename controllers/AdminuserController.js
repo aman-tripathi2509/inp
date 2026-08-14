@@ -5,6 +5,7 @@ const AdminUser = require("../models/adminuserModel");
 const path = require("path");
 const fs = require("fs");
 const { AdminINPUserListing } = require('../models/adminuserModel');
+const { aesEncrypt} = require("../utils/encryption")
 
 dotenv.config();
 
@@ -163,7 +164,17 @@ const AdmingetINPUserById = async (req, res) => {
         const userData = user[0];
 
         // Decrypt personal email
-        userData.personal_email = aesDecrypt(userData.personal_email);
+        userData.personal_email = userData.personal_email
+        ? aesDecrypt(userData.personal_email)
+        : null;
+
+        userData.work_email = userData.work_email
+        ? aesDecrypt(userData.work_email)
+        : null;
+
+        userData.mobile = userData.mobile
+        ? aesDecrypt(userData.mobile)
+        : null;
 
         return res.status(200).json({
             message: "User fetched successfully",
@@ -179,29 +190,220 @@ const AdmingetINPUserById = async (req, res) => {
     }
 };
 
-// ====================== ADD USER ======================
+// ====================== ADD INP USER ======================
 const AdminAddInpUser = async (req, res) => {
     try {
         const userData = req.body;
 
-        // ✅ Validate required fields
-        if (!userData.first_name || !userData.work_email) {
-            return res.status(400).json({ message: "first_name and work_email are required" });
+        // Logged-in admin lu_user.user_id from JWT
+        const loggedInUserId = req.user?.adminId;
+
+        if (!loggedInUserId) {
+            return res.status(401).json({
+                message: "Unauthorized user"
+            });
         }
 
-        const result = await AdminUser.AdminAddInpUser(userData);
+        // ================= VALIDATION =================
 
-        res.status(201).json({
-            message: "User and LinkedIn data added successfully",
-            insertId: result.insertId,
-            member_id: result.member_id
+        if (!userData.first_name) {
+            return res.status(400).json({
+                message: "first_name is required"
+            });
+        }
+
+        if (!userData.work_email) {
+            return res.status(400).json({
+                message: "work_email is required"
+            });
+        }
+
+        // ================= ENCRYPT =================
+
+        const encryptedPersonalEmail = userData.personal_email
+            ? aesEncrypt(userData.personal_email)
+            : null;
+
+        const encryptedMobile = userData.mobile
+            ? aesEncrypt(userData.mobile)
+            : null;
+
+        // ================= PREPARE DATA =================
+
+        const data = {
+            ...userData,
+
+            personal_email: userData.personal_email
+                ? aesEncrypt(userData.personal_email)
+                : null,
+
+            mobile: userData.mobile
+                ? aesEncrypt(userData.mobile)
+                : null,
+
+            password: userData.password
+                ? aesEncrypt(userData.password)
+                : null,
+
+            work_email: userData.work_email
+            ? aesEncrypt(userData.work_email)
+            : null,
+
+            // logged-in lu_user.user_id
+            user_id: loggedInUserId
+        };
+
+        // ================= MODEL =================
+
+        const result = await AdminUser.AdminAddInpUser(data);
+
+        return res.status(201).json({
+            message: "User added successfully",
+            data: {
+                id: result.insertId,
+                member_id: result.member_id
+            }
         });
+
     } catch (error) {
-        console.error("Error adding user:", error);
+
+        console.error("Error adding INP user:", error);
+
         if (error.message.includes("already exists")) {
-            return res.status(409).json({ message: error.message });
+            return res.status(409).json({
+                message: error.message
+            });
         }
-        res.status(500).json({ message: "Database error", error: error.message });
+
+        return res.status(500).json({
+            message: "Database error",
+            error: error.message
+        });
+    }
+};
+
+
+// ====================== UPDATE INP USER ======================
+const AdminUpdateInpUser = async (req, res) => {
+    try {
+
+        const userData = req.body;
+
+        // Logged-in admin
+        const loggedInUserId = req.user?.adminId;
+
+        if (!loggedInUserId) {
+            return res.status(401).json({
+                message: "Unauthorized user"
+            });
+        }
+
+
+        // ================= VALIDATION =================
+
+        if (!userData.member_id) {
+            return res.status(400).json({
+                message: "member_id is required"
+            });
+        }
+
+        if (userData.id !== undefined) {
+            return res.status(400).json({
+                message: "id cannot be updated"
+            });
+        }
+
+
+        // ================= PREPARE DATA =================
+
+        const data = {
+            ...userData,
+
+            // Only encrypt when field is actually sent
+            personal_email:
+                userData.personal_email !== undefined
+                    ? (
+                        userData.personal_email
+                            ? aesEncrypt(userData.personal_email)
+                            : null
+                    )
+                    : undefined,
+
+            mobile:
+                userData.mobile !== undefined
+                    ? (
+                        userData.mobile
+                            ? aesEncrypt(userData.mobile)
+                            : null
+                    )
+                    : undefined,
+
+            password:
+                userData.password !== undefined
+                    ? (
+                        userData.password
+                            ? aesEncrypt(userData.password)
+                            : null
+                    )
+                    : undefined,
+
+            work_email:
+                userData.work_email !== undefined
+                    ? (
+                        userData.work_email
+                            ? aesEncrypt(userData.work_email)
+                            : null
+                    )
+                    : undefined,
+
+            // Admin who updated it
+            updated_by: loggedInUserId
+        };
+
+
+        // ================= MODEL =================
+
+        const result =
+            await AdminUser.AdminUpdateInpUser(data);
+
+
+        return res.status(200).json({
+            message: "User updated successfully",
+            data: {
+                id: result.id,
+                member_id: result.member_id
+            }
+        });
+
+
+    } catch (error) {
+
+        console.error(
+            "Error updating INP user:",
+            error
+        );
+
+
+        if (error.message === "User not found") {
+
+            return res.status(404).json({
+                message: "User not found"
+            });
+        }
+
+
+        if (error.message.includes("already exists")) {
+
+            return res.status(409).json({
+                message: error.message
+            });
+        }
+
+
+        return res.status(500).json({
+            message: "Database error",
+            error: error.message
+        });
     }
 };
 
@@ -246,5 +448,6 @@ module.exports = { Adminlogin,
     AdminGetInpUsers,
     AdmingetINPUserById,
     AdminAddInpUser,
+    AdminUpdateInpUser,
     AdminImportInpUsers
  };

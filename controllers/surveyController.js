@@ -1526,7 +1526,7 @@ const addSurveyComment = async (req, res) => {
         const {
             survey_id,
             comment,
-            parent_comment_id
+            reply_to_comment_id
         } = req.body;
 
         //--------------------------------------------------
@@ -1539,7 +1539,6 @@ const addSurveyComment = async (req, res) => {
                 success: false,
                 message: "survey_id is required."
             });
-
         }
 
         if (!comment || !comment.trim()) {
@@ -1548,18 +1547,44 @@ const addSurveyComment = async (req, res) => {
                 success: false,
                 message: "Comment is required."
             });
-
         }
 
         //--------------------------------------------------
-        // Add Comment
+        // Validate reply_to_comment_id if provided
+        //--------------------------------------------------
+
+        let parsedReplyToCommentId = null;
+
+        if (
+            reply_to_comment_id !== undefined &&
+            reply_to_comment_id !== null &&
+            reply_to_comment_id !== ""
+        ) {
+
+            parsedReplyToCommentId =
+                Number(reply_to_comment_id);
+
+            if (
+                !Number.isInteger(parsedReplyToCommentId) ||
+                parsedReplyToCommentId <= 0
+            ) {
+
+                return res.status(400).json({
+                    success: false,
+                    message: "Valid reply_to_comment_id is required."
+                });
+            }
+        }
+
+        //--------------------------------------------------
+        // Add Comment / Reply
         //--------------------------------------------------
 
         const result = await Survey.addSurveyComment(
             survey_id,
             member_id,
             comment.trim(),
-            parent_comment_id || null
+            parsedReplyToCommentId
         );
 
         //--------------------------------------------------
@@ -1573,32 +1598,40 @@ const addSurveyComment = async (req, res) => {
             result
         );
 
+        //--------------------------------------------------
+        // Response
+        //--------------------------------------------------
+
         return res.status(200).json({
 
             success: true,
 
-            message: parent_comment_id
+            message: parsedReplyToCommentId
                 ? "Reply added successfully."
                 : "Comment added successfully.",
 
             data: result
-
         });
 
     } catch (error) {
 
-        console.error("Add Survey Comment Error:", error);
+        console.error(
+            "Add Survey Comment Error:",
+            error
+        );
 
-        return res.status(error.statusCode || 500).json({
+        return res.status(
+            error.statusCode || 500
+        ).json({
 
             success: false,
 
-            message: error.message || "Internal Server Error"
+            message:
+                error.message ||
+                "Internal Server Error"
 
         });
-
     }
-
 };
 
 
@@ -1789,15 +1822,21 @@ const getCommentReplies = async (req, res) => {
         // Validation
         //--------------------------------------------------
 
-        const parsedCommentId = Number(comment_id);
+        const parsedCommentId =
+            Number(comment_id);
 
         if (
             !Number.isInteger(parsedCommentId) ||
             parsedCommentId <= 0
         ) {
+
             return res.status(400).json({
+
                 success: false,
-                message: "Valid comment_id is required."
+
+                message:
+                    "Valid comment_id is required."
+
             });
         }
 
@@ -1805,10 +1844,15 @@ const getCommentReplies = async (req, res) => {
         // Fetch Replies
         //--------------------------------------------------
 
-        const result = await Survey.getCommentReplies(
-            parsedCommentId,
-            member_id
-        );
+        const result =
+            await Survey.getCommentReplies(
+                parsedCommentId,
+                member_id
+            );
+
+        //--------------------------------------------------
+        // Response
+        //--------------------------------------------------
 
         return res.status(200).json({
 
@@ -1838,9 +1882,7 @@ const getCommentReplies = async (req, res) => {
                 "Internal Server Error"
 
         });
-
     }
-
 };
 
 

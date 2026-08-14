@@ -2,9 +2,216 @@ const jwt = require("jsonwebtoken");
 const dotenv = require("dotenv");
 const { aesEncrypt, aesDecrypt } = require("../utils/encryption");
 const sendEmail = require("../utils/emailService");
+
+const speakeasy = require("speakeasy");
+const QRCode = require("qrcode");
+const UAParser = require("ua-parser-js");
+const geoip = require("geoip-lite");
+const { getName } = require("country-list");
+
 const User = require("../models/userModel");
+const LoginActivity = require("../models/loginActivityModel");
+const LoginSession = require("../models/loginSessionModel");
+
+const fs = require("fs");
+const path = require("path");
 
 dotenv.config();
+
+
+const getLoginActivityInfo = (req) => {
+
+    const userAgent = req.headers["user-agent"] || "";
+
+    // -----------------------------------
+    // GET IP ADDRESS
+    // -----------------------------------
+
+    const ip_address =
+        req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+        req.socket?.remoteAddress ||
+        req.ip ||
+        null;
+
+
+    // -----------------------------------
+    // PARSE USER AGENT
+    // -----------------------------------
+
+    const parser = new UAParser(userAgent);
+
+    const deviceInfo = parser.getDevice();
+    const browserInfo = parser.getBrowser();
+    const osInfo = parser.getOS();
+
+
+    // -----------------------------------
+    // DEVICE
+    // -----------------------------------
+
+    let device = "Desktop";
+
+    if (deviceInfo.type === "mobile") {
+        device = "Mobile";
+    } else if (deviceInfo.type === "tablet") {
+        device = "Tablet";
+    } else if (deviceInfo.type) {
+        device = deviceInfo.type;
+    }
+
+
+    // -----------------------------------
+    // BROWSER
+    // -----------------------------------
+
+    let browser = browserInfo.name || "Unknown";
+
+    if (browserInfo.version) {
+        browser = `${browser} ${browserInfo.version}`;
+    }
+
+
+    // -----------------------------------
+    // OPERATING SYSTEM
+    // -----------------------------------
+
+    let operatingSystem = osInfo.name || "Unknown";
+
+    if (osInfo.version) {
+        operatingSystem = `${operatingSystem} ${osInfo.version}`;
+    }
+
+
+    // -----------------------------------
+    // GEOLOCATION
+    // -----------------------------------
+
+    let city = null;
+    let country = null;
+
+    if (ip_address) {
+
+        // Remove IPv6 prefix if present
+        const cleanIp = ip_address.replace(/^::ffff:/, "");
+
+        const geo = geoip.lookup(cleanIp);
+
+        if (geo) {
+
+            city = geo.city || null;
+
+            if (geo.country) {
+                country = getName(geo.country) || geo.country;
+            }
+        }
+    }
+
+
+    // -----------------------------------
+    // RETURN LOGIN INFORMATION
+    // -----------------------------------
+
+    return {
+
+        ip_address,
+
+        city,
+
+        country,
+
+        user_agent: userAgent,
+
+        device,
+
+        browser,
+
+        operating_system: operatingSystem
+    };
+};
+
+const recordLoginActivity = async (
+    req,
+    {
+        u_id = null,
+        member_id = null,
+        login_type,
+        login_status
+    }
+) => {
+
+    try {
+
+        const activityInfo = getLoginActivityInfo(req);
+
+        await LoginActivity.createLoginActivity({
+            u_id,
+            member_id,
+            ip_address: activityInfo.ip_address,
+            city: activityInfo.city,
+            country: activityInfo.country,
+            user_agent: activityInfo.user_agent,
+            device: activityInfo.device,
+            browser: activityInfo.browser,
+            operating_system: activityInfo.operating_system,
+            login_type,
+            login_status
+        });
+
+    } catch (error) {
+
+        // Login activity should NEVER stop the login itself
+        console.error(
+            "Failed to record login activity:",
+            error
+        );
+    }
+};
+
+
+/*--------------------------------------------------------------
+    Create Active Login Session
+--------------------------------------------------------------*/
+const createLoginSession = async (
+    req,
+    {
+        u_id,
+        member_id,
+        session_token
+    }
+) => {
+
+    try {
+
+        const activityInfo = getLoginActivityInfo(req);
+
+        const expires_at = new Date(
+            Date.now() + 12 * 60 * 60 * 1000
+        );
+
+        const result = await LoginSession.createLoginSession({
+            u_id,
+            member_id,
+            session_token,
+            ip_address: activityInfo.ip_address,
+            user_agent: activityInfo.user_agent,
+            device: activityInfo.device,
+            browser: activityInfo.browser,
+            operating_system: activityInfo.operating_system,
+            expires_at
+        });
+
+        return result.id;
+
+    } catch (error) {
+
+        console.error(
+            "Failed to create login session:",
+            error
+        );
+
+        return null;
+    }
+};
 
 /*--------------------------------------------------------------
     Login function with user_name or personal_email
@@ -27,6 +234,13 @@ const login = async (req, res) => {
 
         // EMAIL NOT FOUND
         if (user.length === 0) {
+
+            await recordLoginActivity(req, {
+                u_id: null,
+                member_id: null,
+                login_type: 1,
+                login_status: 0
+            });
 
             return res.status(404).json({
                 message: "Email does not exist"
@@ -54,22 +268,80 @@ const login = async (req, res) => {
         // WRONG PASSWORD
         if (password !== decryptedPassword) {
 
+            await recordLoginActivity(req, {
+                u_id: user[0].id,
+                member_id: user[0].member_id,
+                login_type: 1,
+                login_status: 0
+            });
+
             return res.status(401).json({
                 message: "Incorrect password"
             });
         }
 
-        // Generate token
-        const token = jwt.sign(
-        {
-            userId: user[0].id,
-            member_id: user[0].member_id
-        },
-        process.env.JWT_SECRET,
-        {
-            expiresIn: "12h"
-        }
+        // -----------------------------------
+        // CHECK 2FA STATUS
+        // -----------------------------------
+
+        const twoFactorStatus = await User.getTwoFactorStatus(
+            user[0].id
         );
+
+        // -----------------------------------
+        // IF 2FA IS ENABLED
+        // -----------------------------------
+
+        if (twoFactorStatus.is_enabled) {
+
+            // Create temporary token only for 2FA verification
+            const twoFactorToken = jwt.sign(
+                {
+                    userId: user[0].id,
+                    member_id: user[0].member_id,
+                    purpose: "2FA_LOGIN"
+                },
+                process.env.JWT_SECRET,
+                {
+                    expiresIn: "5m"
+                }
+            );
+
+            return res.status(200).json({
+                success: true,
+                message: "Two-factor authentication required",
+                requires_2fa: true,
+                two_factor_token: twoFactorToken
+            });
+        }
+
+        // -----------------------------------
+        // NORMAL LOGIN - 2FA NOT ENABLED
+        // -----------------------------------
+
+        const token = jwt.sign(
+            {
+                userId: user[0].id,
+                member_id: user[0].member_id
+            },
+            process.env.JWT_SECRET,
+            {
+                expiresIn: "12h"
+            }
+        );
+
+        await recordLoginActivity(req, {
+            u_id: user[0].id,
+            member_id: user[0].member_id,
+            login_type: 1,
+            login_status: 1
+        });
+
+        await createLoginSession(req, {
+            u_id: user[0].id,
+            member_id: user[0].member_id,
+            session_token: token
+        });
 
         const filteredUser = {
 
@@ -95,6 +367,169 @@ const login = async (req, res) => {
         return res.status(500).json({
             message: "Database error",
             error: error.message
+        });
+    }
+};
+
+const verifyTwoFactorLogin = async (req, res) => {
+    try {
+
+        // -----------------------------------
+        // CHECK TEMPORARY 2FA TOKEN
+        // -----------------------------------
+
+        const userId = req.user?.userId;
+        const member_id = req.user?.member_id;
+
+        if (!userId || !member_id) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid two-factor authentication token"
+            });
+        }
+
+        // -----------------------------------
+        // CHECK TOKEN PURPOSE
+        // -----------------------------------
+
+        if (req.user?.purpose !== "2FA_LOGIN") {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid two-factor authentication token"
+            });
+        }
+
+        // -----------------------------------
+        // GET OTP
+        // -----------------------------------
+
+        const { otp } = req.body;
+
+        if (!otp) {
+            return res.status(400).json({
+                success: false,
+                message: "OTP is required"
+            });
+        }
+
+        // -----------------------------------
+        // OTP MUST BE 6 DIGITS
+        // -----------------------------------
+
+        if (!/^\d{6}$/.test(String(otp))) {
+            return res.status(400).json({
+                success: false,
+                message: "OTP must be a 6-digit number"
+            });
+        }
+
+        // -----------------------------------
+        // GET 2FA SECRET
+        // -----------------------------------
+
+        const result = await User.getTwoFactorSecret(userId);
+
+        if (!result || result.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "2FA setup not found"
+            });
+        }
+
+        const twoFactorData = result[0];
+
+        if (!twoFactorData.secret) {
+            return res.status(404).json({
+                success: false,
+                message: "2FA secret not found"
+            });
+        }
+
+        if (twoFactorData.is_enabled !== 1) {
+            return res.status(400).json({
+                success: false,
+                message: "Two-factor authentication is not enabled"
+            });
+        }
+
+        // -----------------------------------
+        // VERIFY OTP
+        // -----------------------------------
+
+        const verified = speakeasy.totp.verify({
+            secret: twoFactorData.secret,
+            encoding: "base32",
+            token: String(otp),
+            window: 1
+        });
+
+        // -----------------------------------
+        // INVALID OTP
+        // -----------------------------------
+
+        if (!verified) {
+
+            await recordLoginActivity(req, {
+                u_id: userId,
+                member_id: member_id,
+                login_type: 2,
+                login_status: 0
+            });
+
+            return res.status(400).json({
+                success: false,
+                message: "Invalid OTP"
+            });
+        }
+
+        // -----------------------------------
+        // GENERATE NORMAL LOGIN TOKEN
+        // -----------------------------------
+
+        const token = jwt.sign(
+            {
+                userId: userId,
+                member_id: member_id
+            },
+            process.env.JWT_SECRET,
+            {
+                expiresIn: "12h"
+            }
+        );
+
+        await recordLoginActivity(req, {
+            u_id: userId,
+            member_id: member_id,
+            login_type: 2,
+            login_status: 1
+        });
+
+        await createLoginSession(req, {
+            u_id: userId,
+            member_id: member_id,
+            session_token: token
+        });
+
+        // -----------------------------------
+        // SUCCESS
+        // -----------------------------------
+
+        return res.status(200).json({
+            success: true,
+            message: "Login successful",
+            token
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Error verifying 2FA login:",
+            error
+        );
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error"
         });
     }
 };
@@ -273,63 +708,250 @@ const updateUser = async (req, res) => {
     }
 };
 
-/*--------------------------------------------------------------
-    Function to fetch all users 
---------------------------------------------------------------*/
-const fetchUsers = async (req, res) => {
+// Get single user by member_id
+const getUserDetail = async (req, res) => {
     try {
-        const filters = {
-            member_id: req.body.member_id || null,
-            name: req.body.name || null,
-            location: req.body.location || null,   // Open-ended location
-            Job_title: req.body.Job_title || null,
-            sector: req.body.sector || null,
-            industry: req.body.industry || null,
-            global_search: req.body.global_search || null // Global search
-        };
-        const page = parseInt(req.body.page) || 1;
-        const limit = parseInt(req.body.limit) || 15;
-        // Check if any filter is applied
-        const activeFilters = Object.values(filters).filter(v => v !== null && v !== '');
-        if (activeFilters.length === 0) {
-            return res.status(400).json({
-                message: "Please apply at least one search filter to view users.",
-                error: "No filters provided"
+        const member_id = req.user.member_id;
+
+        if (!member_id) {
+            return res.status(401).json({
+                message: "User information not found in token"
             });
         }
-        // Fetch data
-        const result = await User.fetch_users(filters, page, limit);
-        res.status(200).json({
-            message: "Users fetched successfully",
-            totalRecords: result.totalRecords,
-            totalPages: result.totalPages,
-            currentPage: result.currentPage,
-            data: result.data
+
+        const user = await User.getLoggedinUser(member_id);
+
+        if (!user || user.length === 0) {
+            return res.status(404).json({
+                message: "User not found"
+            });
+        }
+
+        const userData = user[0];
+
+        // Decrypt personal email
+        userData.personal_email = userData.personal_email
+            ? aesDecrypt(userData.personal_email)
+            : null;
+
+        // Decrypt work email
+        userData.work_email = userData.work_email
+            ? aesDecrypt(userData.work_email)
+            : null;
+
+        // Decrypt mobile
+        userData.mobile = userData.mobile
+            ? aesDecrypt(userData.mobile)
+            : null;
+
+            // ==================================================
+            // PROFILE COMPLETION
+            // ==================================================
+
+            const basicInformation =
+                !!userData.first_name &&
+                !!userData.last_name &&
+                !!userData.personal_email &&
+                !!userData.mobile &&
+                !!userData.age_entered &&
+                !!userData.gender;
+
+            const emailVerified =
+                userData.email_verified === 1;
+
+            const countryAdded =
+                !!userData.country;
+
+            const industryAdded =
+                !!userData.industry;
+
+            const educationDetails =
+                !!userData.highest_education;
+
+            const careerDetails =
+                !!userData.work_experience;
+
+            const companyDetails =
+                userData.company_details_added === 1;
+
+            const previousEmployer =
+                userData.previous_employement !== null &&
+                userData.previous_employement !== undefined &&
+                userData.previous_employement !== "";
+
+            const profilePhoto =
+                !!userData.profile_photo;
+
+
+                const completionItems = [
+                basicInformation,
+                emailVerified,
+                countryAdded,
+                industryAdded,
+                educationDetails,
+                careerDetails,
+                companyDetails,
+                previousEmployer,
+                profilePhoto
+            ];
+
+            const completedCount =
+                completionItems.filter(Boolean).length;
+
+            const totalItems =
+                completionItems.length;
+
+            const percentage =
+                Math.round(
+                    (completedCount / totalItems) * 100
+                );
+
+                const profileCompletion = {
+
+                percentage,
+
+                basic_information:
+                    basicInformation,
+
+                email_verified:
+                    emailVerified,
+
+                country_added:
+                    countryAdded,
+
+                industry_added:
+                    industryAdded,
+
+                education_details:
+                    educationDetails,
+
+                career_details:
+                    careerDetails,
+
+                company_details:
+                    companyDetails,
+
+                previous_employer:
+                    previousEmployer,
+
+                profile_photo:
+                    profilePhoto
+            };
+
+        return res.status(200).json({
+            message: "User fetched successfully",
+            data: userData,
+            profile_completion: profileCompletion
         });
+
     } catch (error) {
-        console.error("Error fetching Users:", error);
-        res.status(500).json({ message: "Database error", error: error.message });
+        console.error(error);
+
+        return res.status(500).json({
+            message: "Database error",
+            error: error.message
+        });
     }
 };
 
 /*--------------------------------------------------------------
-    Get single user by member_id
+    Upload / Update User Profile Photo
 --------------------------------------------------------------*/
-const user_detail = async (req, res) => {
-    try {
-        const { member_id } = req.body; // <-- from body
-        const user = await User.fetch_userDetail(member_id);
+const uploadProfilePhoto = async (req, res) => {
 
-        if (!user || user.length === 0) {
-            return res.status(404).json({ message: "User not found" });
+    try {
+
+        // Check image
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: "Profile photo is required"
+            });
         }
-        res.status(200).json({
-            message: "User fetched successfully",
-            data: user[0],
+
+        const { member_id } = req.body;
+
+        // Check member_id
+        if (!member_id) {
+
+            // Delete uploaded file
+            if (fs.existsSync(req.file.path)) {
+                fs.unlinkSync(req.file.path);
+            }
+
+            return res.status(400).json({
+                success: false,
+                message: "member_id is required"
+            });
+        }
+
+        // Path saved in database
+        const photoPath =
+            `/uploads/profile_photos/${req.file.filename}`;
+
+        // Update database
+        const result = await User.updateProfilePhoto(
+            member_id,
+            photoPath
+        );
+
+        // Delete old photo if user already had one
+        if (result.oldPhoto) {
+
+            const oldPhotoPath = path.join(
+                __dirname,
+                "..",
+                "public",
+                result.oldPhoto.replace(/^\/+/, "")
+            );
+
+            if (
+                fs.existsSync(oldPhotoPath) &&
+                oldPhotoPath !== req.file.path
+            ) {
+                fs.unlinkSync(oldPhotoPath);
+            }
+        }
+
+        // Full URL
+        const baseUrl =
+            `${req.protocol}://${req.get("host")}`;
+
+        return res.status(200).json({
+
+            success: true,
+
+            message: result.oldPhoto
+                ? "Profile photo updated successfully"
+                : "Profile photo uploaded successfully",
+
+            data: {
+                member_id: member_id,
+
+                profile_photo: photoPath,
+
+                profile_photo_url:
+                    `${baseUrl}${photoPath}`
+            }
         });
+
     } catch (error) {
-        console.error("Error fetching user:", error);
-        res.status(500).json({ message: "Database error", error: error.message });
+
+        console.error(
+            "Error uploading profile photo:",
+            error
+        );
+
+        // Delete newly uploaded image if database operation fails
+        if (req.file && fs.existsSync(req.file.path)) {
+            fs.unlinkSync(req.file.path);
+        }
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to upload profile photo",
+            error: error.message
+        });
     }
 };
 
@@ -338,84 +960,266 @@ const user_detail = async (req, res) => {
     Controller to Update INP user Data
 --------------------------------------------------------------*/
 async function update_UserData(req, res) {
+
     try {
+
+        // -----------------------------------
+        // GET LOGGED-IN USER FROM JWT
+        // -----------------------------------
+
+        const member_id = req.user?.member_id;
+
+        if (!member_id) {
+            return res.status(401).json({
+                message: "User information not found in token"
+            });
+        }
+
+        // -----------------------------------
+        // REQUEST BODY
+        // -----------------------------------
+
         const params = req.body;
 
         if (!params || Object.keys(params).length === 0) {
-            return res.status(400).json({ message: "Bad update request" });
+            return res.status(400).json({
+                message: "Bad update request"
+            });
         }
 
-        if (!params.member_id) {
-            return res.status(400).json({ message: "member_id is required" });
-        }
+        // -----------------------------------
+        // UPDATE USER
+        // -----------------------------------
 
-        const result = await User.updateUserData(params);
+        const result = await User.updateUserData(
+            member_id,
+            params
+        );
 
         if (!result || result.success !== true) {
+
             return res.status(400).json({
                 message: "Update failed"
             });
         }
 
-        // OPTIONAL: return updated data
-        const updatedUser = await User.InpUserById(params.member_id);
+        // -----------------------------------
+        // FETCH UPDATED USER
+        // -----------------------------------
+
+        const updatedUser =
+            await User.getLoggedinUser(member_id);
+
+        if (!updatedUser || updatedUser.length === 0) {
+
+            return res.status(404).json({
+                message: "User not found"
+            });
+        }
+
+        const updatedUserData = updatedUser[0];
+
+        // -----------------------------------
+        // DECRYPT DATA
+        // -----------------------------------
+
+        updatedUserData.personal_email =
+            updatedUserData.personal_email
+                ? aesDecrypt(updatedUserData.personal_email)
+                : null;
+
+        updatedUserData.work_email =
+            updatedUserData.work_email
+                ? aesDecrypt(updatedUserData.work_email)
+                : null;
+
+        updatedUserData.mobile =
+            updatedUserData.mobile
+                ? aesDecrypt(updatedUserData.mobile)
+                : null;
+
+        // -----------------------------------
+        // RESPONSE
+        // -----------------------------------
 
         return res.status(200).json({
-            message: "Data updated successfully!"
+
+            message: "Data updated successfully!",
+
+            data: updatedUserData
+
         });
 
     } catch (err) {
-        console.error("Error in updating user:", err);
+
+        console.error(
+            "Error in updating user:",
+            err
+        );
 
         return res.status(500).json({
+
             message: "Internal server error",
+
             error: err.message
+
         });
     }
 }
 
+
 /*--------------------------------------------------------------
-    Function to fetch employees Working in a particular company
+    Change Password
 --------------------------------------------------------------*/
-const getCompanyEmployees = async (req, res) => {
+const changePassword = async (req, res) => {
     try {
-        const { company_id } = req.body; // Expecting company_id in request body
-        if (!company_id) {
-            return res.status(400).json({ 
-                message: "Company ID is required in request body" 
+
+        // -----------------------------------
+        // GET LOGGED-IN USER FROM JWT
+        // -----------------------------------
+
+        const member_id = req.user?.member_id;
+
+        if (!member_id) {
+            return res.status(401).json({
+                message: "User information not found in token"
             });
         }
-        // Optional: Validate company_id format (assuming it's a string or number)
-        if (typeof company_id !== 'string' && typeof company_id !== 'number') {
-            return res.status(400).json({ 
-                message: "Invalid company ID format" 
+
+        // -----------------------------------
+        // REQUEST BODY
+        // -----------------------------------
+
+        const {
+            current_password,
+            new_password,
+            confirm_password
+        } = req.body;
+
+        // -----------------------------------
+        // VALIDATION
+        // -----------------------------------
+
+        if (
+            !current_password ||
+            !new_password ||
+            !confirm_password
+        ) {
+            return res.status(400).json({
+                message:
+                    "Current password, new password and confirm password are required"
             });
         }
-        const employees = await User.getEmployeesByCompany(company_id);
-        if (!employees || employees.length === 0) {
-            return res.status(200).json({ 
-                message: "No employees found for this company",
-                employees: [],
-                company_id: company_id
+
+        // -----------------------------------
+        // CHECK PASSWORD MATCH
+        // -----------------------------------
+
+        if (new_password !== confirm_password) {
+            return res.status(400).json({
+                message: "New password and confirm password do not match"
             });
         }
-        res.status(200).json({
-            message: "Employees fetched successfully",
-            company_id: company_id,
-            employees: employees,
-            total_employees: employees.length
+
+        // -----------------------------------
+        // CHANGE PASSWORD
+        // -----------------------------------
+
+        const result = await User.changeUserPassword(
+            member_id,
+            current_password,
+            new_password
+        );
+
+        // -----------------------------------
+        // USER NOT FOUND
+        // -----------------------------------
+
+        if (
+            !result.success &&
+            result.code === "USER_NOT_FOUND"
+        ) {
+            return res.status(404).json({
+                message: "User not found"
+            });
+        }
+
+        // -----------------------------------
+        // PASSWORD DECRYPTION ERROR
+        // -----------------------------------
+
+        if (
+            !result.success &&
+            result.code === "PASSWORD_DECRYPT_FAILED"
+        ) {
+            return res.status(500).json({
+                message: "Unable to verify current password"
+            });
+        }
+
+        // -----------------------------------
+        // WRONG CURRENT PASSWORD
+        // -----------------------------------
+
+        if (
+            !result.success &&
+            result.code === "INVALID_CURRENT_PASSWORD"
+        ) {
+            return res.status(401).json({
+                message: "Current password is incorrect"
+            });
+        }
+
+        // -----------------------------------
+        // SAME PASSWORD
+        // -----------------------------------
+
+        if (
+            !result.success &&
+            result.code === "SAME_PASSWORD"
+        ) {
+            return res.status(400).json({
+                message:
+                    "New password must be different from current password"
+            });
+        }
+
+        // -----------------------------------
+        // UPDATE FAILED
+        // -----------------------------------
+
+        if (
+            !result.success &&
+            result.code === "UPDATE_FAILED"
+        ) {
+            return res.status(500).json({
+                message: "Password update failed"
+            });
+        }
+
+        // -----------------------------------
+        // SUCCESS
+        // -----------------------------------
+
+        return res.status(200).json({
+            success: true,
+            message: "Password changed successfully"
         });
+
     } catch (error) {
-        console.error("Error in getCompanyEmployees:", error);
-        if (error.message === "Company ID is required") {
-            return res.status(400).json({ message: error.message });
-        }
-        res.status(500).json({ 
-            message: "Internal server error while fetching company employees",
-            error: error.message 
+
+        console.error(
+            "Error changing password:",
+            error
+        );
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error"
         });
     }
 };
+
 
 /*--------------------------------------------------------------
     Function to fetch highest education answers 
@@ -1036,6 +1840,494 @@ const signup = async (req, res) => {
         res.status(500).json({ message: "Database error" });
     }
 };
+
+
+/*--------------------------------------------------------------
+    Get 2FA Status
+--------------------------------------------------------------*/
+const getTwoFactorStatus = async (req, res) => {
+    try {
+
+        // -----------------------------------
+        // GET LOGGED-IN USER FROM JWT
+        // -----------------------------------
+
+        const u_id = req.user?.userId;
+
+        if (!u_id) {
+            return res.status(401).json({
+                message: "User information not found in token"
+            });
+        }
+
+        // -----------------------------------
+        // GET 2FA STATUS
+        // -----------------------------------
+
+        const result = await User.getTwoFactorStatus(u_id);
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                is_enabled: result.is_enabled
+            }
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Error fetching 2FA status:",
+            error
+        );
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+};
+
+/*--------------------------------------------------------------
+    Setup 2FA
+--------------------------------------------------------------*/
+const setupTwoFactor = async (req, res) => {
+    try {
+
+        // -----------------------------------
+        // GET LOGGED-IN USER
+        // -----------------------------------
+
+        const u_id = req.user?.userId;
+
+        if (!u_id) {
+            return res.status(401).json({
+                message: "User information not found in token"
+            });
+        }
+
+        // -----------------------------------
+        // CHECK CURRENT 2FA STATUS
+        // -----------------------------------
+
+        const status = await User.getTwoFactorStatus(u_id);
+
+        if (status.is_enabled) {
+            return res.status(400).json({
+                success: false,
+                message: "Two-factor authentication is already enabled"
+            });
+        }
+
+        // -----------------------------------
+        // GET USER DETAILS
+        // -----------------------------------
+
+        const member_id = req.user?.member_id;
+
+        if (!member_id) {
+            return res.status(401).json({
+                message: "Member information not found in token"
+            });
+        }
+
+        const user = await User.getLoggedinUser(member_id);
+
+        if (!user || user.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found"
+            });
+        }
+
+        const userData = user[0];
+
+        // -----------------------------------
+        // GENERATE SECRET
+        // -----------------------------------
+
+        const secret = speakeasy.generateSecret({
+            name: `Industry & People (${userData.personal_email})`,
+            issuer: "Industry & People"
+        });
+
+        // -----------------------------------
+        // SAVE SECRET
+        // -----------------------------------
+
+        const result = await User.createTwoFactorSecret(
+            u_id,
+            secret.base32
+        );
+
+        if (!result.success) {
+
+            if (result.code === "ALREADY_ENABLED") {
+                return res.status(400).json({
+                    success: false,
+                    message:
+                        "Two-factor authentication is already enabled"
+                });
+            }
+
+            return res.status(500).json({
+                success: false,
+                message: "Unable to setup two-factor authentication"
+            });
+        }
+
+        // -----------------------------------
+        // GENERATE QR CODE
+        // -----------------------------------
+
+        const qrCode = await QRCode.toDataURL(
+            secret.otpauth_url
+        );
+
+        // -----------------------------------
+        // RESPONSE
+        // -----------------------------------
+
+        return res.status(200).json({
+            success: true,
+            message: "2FA setup initiated",
+            data: {
+                qr_code: qrCode,
+                secret: secret.base32
+            }
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Error setting up 2FA:",
+            error
+        );
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+};
+
+/*--------------------------------------------------------------
+    Verify 2FA OTP
+--------------------------------------------------------------*/
+const verifyTwoFactor = async (req, res) => {
+    try {
+
+        // -----------------------------------
+        // GET LOGGED-IN USER
+        // -----------------------------------
+
+        const u_id = req.user?.userId;
+
+        if (!u_id) {
+            return res.status(401).json({
+                success: false,
+                message: "User information not found in token"
+            });
+        }
+
+        // -----------------------------------
+        // GET OTP
+        // -----------------------------------
+
+        const { otp } = req.body;
+
+        if (!otp) {
+            return res.status(400).json({
+                success: false,
+                message: "OTP is required"
+            });
+        }
+
+        // -----------------------------------
+        // OTP MUST BE 6 DIGITS
+        // -----------------------------------
+
+        if (!/^\d{6}$/.test(String(otp))) {
+            return res.status(400).json({
+                success: false,
+                message: "OTP must be a 6-digit number"
+            });
+        }
+
+        // -----------------------------------
+        // GET 2FA SECRET
+        // -----------------------------------
+
+        const result = await User.verifyTwoFactorOTP(u_id, otp);
+
+        if (!result.success) {
+
+            if (result.code === "2FA_NOT_SETUP") {
+                return res.status(404).json({
+                    success: false,
+                    message: "2FA setup not found"
+                });
+            }
+
+            if (result.code === "SECRET_NOT_FOUND") {
+                return res.status(404).json({
+                    success: false,
+                    message: "2FA secret not found"
+                });
+            }
+
+            return res.status(400).json({
+                success: false,
+                message: "Unable to verify 2FA"
+            });
+        }
+
+        // -----------------------------------
+        // VERIFY OTP
+        // -----------------------------------
+
+        const verified = speakeasy.totp.verify({
+            secret: result.secret,
+            encoding: "base32",
+            token: String(otp),
+            window: 1
+        });
+
+        // -----------------------------------
+        // INVALID OTP
+        // -----------------------------------
+
+        if (!verified) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid OTP"
+            });
+        }
+
+        // -----------------------------------
+        // ENABLE 2FA
+        // -----------------------------------
+
+        const enabled = await User.enableTwoFactor(u_id);
+
+        if (!enabled) {
+            return res.status(500).json({
+                success: false,
+                message: "OTP verified but failed to enable 2FA"
+            });
+        }
+
+        // -----------------------------------
+        // SUCCESS
+        // -----------------------------------
+
+        return res.status(200).json({
+            success: true,
+            message: "Two-factor authentication enabled successfully"
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Error verifying 2FA:",
+            error
+        );
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+};
+
+const getActiveDevices = async (req, res) => {
+    try {
+        const u_id = req.user?.userId;
+
+        if (!u_id) {
+            return res.status(401).json({
+                success: false,
+                message: "User information not found in token"
+            });
+        }
+
+        const sessions = await LoginSession.getActiveSessions(u_id);
+
+        // Format date and time in IST
+        const formatDateTime = (date) => {
+            if (!date) return null;
+
+            return new Date(date).toLocaleString("en-IN", {
+                timeZone: "Asia/Kolkata",
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: true
+            });
+        };
+
+        const formattedSessions = sessions.map(session => ({
+            ...session,
+
+            created_at: formatDateTime(session.created_at),
+
+            last_activity_at: formatDateTime(
+                session.last_activity_at
+            ),
+
+            expires_at: formatDateTime(
+                session.expires_at
+            )
+        }));
+
+        return res.status(200).json({
+            success: true,
+            data: formattedSessions
+        });
+
+    } catch (error) {
+        console.error("Error fetching active devices:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+};
+
+/*--------------------------------------------------------------
+    Logout Single Device
+--------------------------------------------------------------*/
+const logoutDevice = async (req, res) => {
+    try {
+
+        const u_id = req.user?.userId;
+        const { session_id } = req.body;
+
+        if (!u_id) {
+            return res.status(401).json({
+                success: false,
+                message: "User information not found in token"
+            });
+        }
+
+        if (!session_id) {
+            return res.status(400).json({
+                success: false,
+                message: "session_id is required"
+            });
+        }
+
+        const result = await LoginSession.deactivateSession(
+            u_id,
+            session_id
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Active session not found"
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Device logged out successfully"
+        });
+
+    } catch (error) {
+        console.error("Logout device error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+};
+
+
+const logoutAllDevices = async (req, res) => {
+    try {
+
+        // -----------------------------------
+        // GET LOGGED-IN USER
+        // -----------------------------------
+
+        const u_id = req.user?.userId;
+
+        if (!u_id) {
+            return res.status(401).json({
+                success: false,
+                message: "User information not found in token"
+            });
+        }
+
+        // -----------------------------------
+        // GET CURRENT JWT TOKEN
+        // -----------------------------------
+
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+            return res.status(401).json({
+                success: false,
+                message: "Authorization token is required"
+            });
+        }
+
+        const session_token = authHeader.split(" ")[1];
+
+        // -----------------------------------
+        // FIND CURRENT SESSION
+        // -----------------------------------
+
+        const currentSession =
+            await LoginSession.getSessionByToken(
+                u_id,
+                session_token
+            );
+
+        if (!currentSession) {
+            return res.status(404).json({
+                success: false,
+                message: "Current session not found"
+            });
+        }
+
+        // -----------------------------------
+        // LOGOUT ALL OTHER DEVICES
+        // -----------------------------------
+
+        const result =
+            await LoginSession.deactivateAllOtherSessions(
+                u_id,
+                currentSession.id
+            );
+
+        // -----------------------------------
+        // SUCCESS
+        // -----------------------------------
+
+        return res.status(200).json({
+            success: true,
+            message: "All other devices have been logged out successfully"
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Logout all devices error:",
+            error
+        );
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+};
+
 /*--------------------------------------------------------------
     Export the function separately 
 --------------------------------------------------------------*/
@@ -1044,10 +2336,13 @@ module.exports = {
     signupRequest,
     signup,
     login,
-    fetchUsers,
+    verifyTwoFactorLogin,
+    
+    getUserDetail,
+    uploadProfilePhoto,
     update_UserData,
-    user_detail,
-    getCompanyEmployees,
+    changePassword,
+
     HighestEducation,
     getStates,
     WorkStatus,
@@ -1062,5 +2357,12 @@ module.exports = {
     FetchHouseholdIncome,
     FetchEmployementStatus,
     FetchDepartment,
-    FetchFunction
+    FetchFunction,
+
+    getTwoFactorStatus,
+    setupTwoFactor,
+    verifyTwoFactor,
+    getActiveDevices,
+    logoutDevice,
+    logoutAllDevices
 };

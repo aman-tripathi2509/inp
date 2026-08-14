@@ -1,20 +1,115 @@
 const express = require("express");
 const router = express.Router();
-const { signup, login,update_UserData,user_detail, getCompanyEmployees,fetchUsers,HighestEducation,getStates,WorkStatus,PrimaryProfession,TotalWorkEx,SeniorityLevel,WorkExCurrentCompany,BusinessModel,CompanyRevenue,CompanyType,FetchYears,FetchHouseholdIncome,FetchEmployementStatus,FetchDepartment,FetchFunction, checkReferral,signupRequest} = require("../controllers/userController");  // Import both functions
+const { signup,
+        login,
+        verifyTwoFactorLogin,
+        getUserDetail,
+        uploadProfilePhoto,
+        update_UserData,
+        changePassword,
+        
+        HighestEducation,
+        getStates,
+        WorkStatus,
+        PrimaryProfession,
+        TotalWorkEx,
+        SeniorityLevel,
+        WorkExCurrentCompany,
+        BusinessModel,
+        CompanyRevenue,
+        CompanyType,
+        FetchYears,
+        FetchHouseholdIncome,
+        FetchEmployementStatus,
+        FetchDepartment,
+        FetchFunction,
+
+        checkReferral,
+        signupRequest,
+    
+        getTwoFactorStatus,
+        setupTwoFactor,
+        verifyTwoFactor,
+        getActiveDevices,
+        logoutDevice,
+        logoutAllDevices} = require("../controllers/userController");  // Import both functions
+
 const { authMiddleware } = require("../middlewares/authMiddleware");  // Import authMiddleware
+const profileUpload = require("../middlewares/profileUpload");
 
 // Signup Route
 // router.post("/signup", signup);
 router.post("/check-referral", checkReferral);     // frontend calls this first to decide which form to show
 router.post("/signup", signup);                    // referral path — creates account immediately
 router.post("/signup-request", signupRequest);     // no referral — goes to pending queue
-
 // Login Route
 router.post("/login", login);    // Use `/login` for authentication
+
+router.post(
+    "/2fa/login",
+    authMiddleware,
+    verifyTwoFactorLogin
+);
+
+// Fetch Single User
+router.post(
+    "/fetch-user",
+    authMiddleware,
+    getUserDetail
+);
+
+router.post(
+    "/upload-profile-photo",
+    authMiddleware,
+    profileUpload.single("profile_photo"),
+    uploadProfilePhoto
+);
+
 router.post('/update-user',authMiddleware,update_UserData);
-router.post('/user-detail',authMiddleware,user_detail);
-router.post('/company-employees',authMiddleware,getCompanyEmployees);
-router.post('/fetch-users',authMiddleware,fetchUsers);
+
+router.post(
+    "/change-password",
+    authMiddleware,
+    changePassword
+);
+
+router.get(
+    "/2fa/status",
+    authMiddleware,
+    getTwoFactorStatus
+);
+
+router.post(
+    "/2fa/setup",
+    authMiddleware,
+    setupTwoFactor
+);
+
+router.post(
+    "/2fa/verify",
+    authMiddleware,
+    verifyTwoFactor
+);
+
+router.get(
+    "/active-devices",
+    authMiddleware,
+    getActiveDevices
+);
+
+router.post(
+    "/logout-device",
+    authMiddleware,
+    logoutDevice
+);
+
+router.post(
+    "/logout-all-devices",
+    authMiddleware,
+    logoutAllDevices
+);
+
+
 router.post('/highest-education',authMiddleware,HighestEducation);
 router.post('/get-states',authMiddleware,getStates);
 router.post("/work-status", authMiddleware, WorkStatus);

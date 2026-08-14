@@ -2916,11 +2916,11 @@ const addSurveyComment = async (
     survey_id,
     member_id,
     comment,
-    parent_comment_id = null
+    reply_to_comment_id = null
 ) => {
 
     //--------------------------------------------------
-    // Check if user completed survey
+    // Check if user can interact with survey
     //--------------------------------------------------
 
     await canUserInteractWithSurvey(
@@ -2929,40 +2929,63 @@ const addSurveyComment = async (
     );
 
     //--------------------------------------------------
-    // Validate reply comment
+    // Default = Main Comment
     //--------------------------------------------------
 
-    if (parent_comment_id) {
+    let parent_comment_id = null;
 
-        const [[parentComment]] = await db.query(
+    //--------------------------------------------------
+    // If this is a reply
+    //--------------------------------------------------
+
+    if (reply_to_comment_id) {
+
+        //--------------------------------------------------
+        // Fetch exact comment being replied to
+        //--------------------------------------------------
+
+        const [[targetComment]] = await db.query(
             `
             SELECT
-                id
+                id,
+                parent_comment_id
             FROM inp_survey_comment
-            WHERE
-                id = ?
-                AND survey_id = ?
-                AND status = 1
+            WHERE id = ?
+              AND survey_id = ?
+              AND status = 1
             LIMIT 1
             `,
             [
-                parent_comment_id,
+                reply_to_comment_id,
                 survey_id
             ]
         );
 
-        if (!parentComment) {
+        if (!targetComment) {
 
             const error = new Error(
-                "Parent comment not found."
+                "Reply target comment not found."
             );
 
             error.statusCode = 404;
 
             throw error;
-
         }
 
+        //--------------------------------------------------
+        // Determine root/thread parent
+        //
+        // If replying to root:
+        // target.parent_comment_id = NULL
+        // therefore root = target.id
+        //
+        // If replying to child:
+        // target.parent_comment_id already contains root ID
+        //--------------------------------------------------
+
+        parent_comment_id =
+            targetComment.parent_comment_id ||
+            targetComment.id;
     }
 
     //--------------------------------------------------
@@ -2976,15 +2999,17 @@ const addSurveyComment = async (
             survey_id,
             member_id,
             parent_comment_id,
+            reply_to_comment_id,
             comment
         )
         VALUES
-        (?, ?, ?, ?)
+        (?, ?, ?, ?, ?)
         `,
         [
             survey_id,
             member_id,
             parent_comment_id,
+            reply_to_comment_id,
             comment
         ]
     );
@@ -2997,17 +3022,25 @@ const addSurveyComment = async (
         `
         SELECT
 
-            c.id,
+            c.id AS comment_id,
             c.survey_id,
             c.member_id,
 
-            CONCAT(
-                u.first_name,
+            CONCAT_WS(
                 ' ',
+                u.first_name,
+                NULLIF(u.middle_name, ''),
                 u.last_name
             ) AS member_name,
 
             c.parent_comment_id,
+            c.reply_to_comment_id,
+
+            reply_to.member_id AS reply_to_member_id,
+
+            reply_user.personal_email
+                AS reply_to_email_encrypted,
+
             c.comment,
             c.created_at
 
@@ -3016,6 +3049,13 @@ const addSurveyComment = async (
         INNER JOIN user u
             ON u.member_id = c.member_id
 
+        LEFT JOIN inp_survey_comment reply_to
+            ON reply_to.id = c.reply_to_comment_id
+            AND reply_to.status = 1
+
+        LEFT JOIN user reply_user
+            ON reply_user.member_id = reply_to.member_id
+
         WHERE c.id = ?
         `,
         [
@@ -3023,8 +3063,65 @@ const addSurveyComment = async (
         ]
     );
 
-    return newComment;
+    //--------------------------------------------------
+    // Decrypt Reply-To Email
+    //--------------------------------------------------
 
+    let replyToEmail = null;
+
+    if (newComment.reply_to_email_encrypted) {
+
+        try {
+
+            let emailValue =
+                newComment.reply_to_email_encrypted;
+
+            if (Buffer.isBuffer(emailValue)) {
+                emailValue =
+                    emailValue.toString("utf8");
+            } else {
+                emailValue =
+                    String(emailValue);
+            }
+
+            emailValue = emailValue.trim();
+
+            if (
+                /^[0-9a-fA-F]+$/.test(emailValue) &&
+                emailValue.length % 2 === 0
+            ) {
+
+                replyToEmail = aesDecrypt(emailValue);
+
+            } else if (emailValue.includes("@")) {
+
+                replyToEmail = emailValue;
+            }
+
+        } catch (error) {
+
+            console.error(
+                "Reply email decrypt failed:",
+                error
+            );
+
+            replyToEmail = null;
+        }
+    }
+
+    newComment.reply_to_email = replyToEmail;
+
+    delete newComment.reply_to_email_encrypted;
+
+    //--------------------------------------------------
+    // Additional response defaults
+    //--------------------------------------------------
+
+    newComment.like_count = 0;
+    newComment.reply_count = 0;
+    newComment.liked_by_me = false;
+
+    return newComment;
 };
 
 
@@ -3282,14 +3379,15 @@ const getSurveyComments = async (
 const getCommentReplies = async (comment_id, member_id) => {
 
     //--------------------------------------------------
-    // Check Parent Comment
+    // Check Parent / Root Comment
     //--------------------------------------------------
 
     const [[comment]] = await db.query(
         `
         SELECT
             id,
-            survey_id
+            survey_id,
+            parent_comment_id
         FROM inp_survey_comment
         WHERE id = ?
           AND status = 1
@@ -3316,62 +3414,31 @@ const getCommentReplies = async (comment_id, member_id) => {
     );
 
     //--------------------------------------------------
-    // Fetch Reply Tree
+    // Determine Root Comment
+    //
+    // Normally this API should receive root comment ID.
+    // But this also handles a child comment ID safely.
+    //--------------------------------------------------
+
+    const rootCommentId =
+        comment.parent_comment_id || comment.id;
+
+    //--------------------------------------------------
+    // Fetch ALL Replies Belonging To Root Thread
+    //
+    // parent_comment_id = root thread
+    // reply_to_comment_id = exact targeted comment
     //--------------------------------------------------
 
     const [rows] = await db.query(
         `
-        WITH RECURSIVE reply_tree AS (
-
-            SELECT
-                c.id,
-                c.parent_comment_id,
-                c.survey_id,
-                c.member_id,
-                c.comment,
-                c.created_at,
-                1 AS depth,
-                LPAD(c.id, 10, '0') AS sort_path
-
-            FROM inp_survey_comment c
-
-            WHERE
-                c.parent_comment_id = ?
-                AND c.status = 1
-
-
-            UNION ALL
-
-
-            SELECT
-                c.id,
-                c.parent_comment_id,
-                c.survey_id,
-                c.member_id,
-                c.comment,
-                c.created_at,
-                rt.depth + 1 AS depth,
-
-                CONCAT(
-                    rt.sort_path,
-                    '/',
-                    LPAD(c.id, 10, '0')
-                ) AS sort_path
-
-            FROM inp_survey_comment c
-
-            INNER JOIN reply_tree rt
-                ON c.parent_comment_id = rt.id
-
-            WHERE c.status = 1
-        )
-
         SELECT
 
-            rt.id AS comment_id,
-            rt.parent_comment_id,
-            rt.survey_id,
-            rt.member_id,
+            c.id AS comment_id,
+            c.parent_comment_id,
+            c.reply_to_comment_id,
+            c.survey_id,
+            c.member_id,
 
             CONCAT_WS(
                 ' ',
@@ -3380,59 +3447,97 @@ const getCommentReplies = async (comment_id, member_id) => {
                 u.last_name
             ) AS member_name,
 
-            /* Author of parent comment */
-            parent_comment.member_id AS reply_to_member_id,
+            /*------------------------------------------
+              Exact comment being replied to
+            ------------------------------------------*/
 
-            /* Encrypted email of parent comment author */
-            parent_user.personal_email AS reply_to_email_encrypted,
+            reply_to.member_id AS reply_to_member_id,
 
-            rt.comment,
-            rt.created_at,
-            rt.depth,
+            /*------------------------------------------
+              Email of exact targeted comment author
+            ------------------------------------------*/
+
+            reply_to_user.personal_email
+                AS reply_to_email_encrypted,
+
+            c.comment,
+            c.created_at,
+
+            /*------------------------------------------
+              Like Count
+            ------------------------------------------*/
 
             (
                 SELECT COUNT(*)
                 FROM inp_survey_comment_like cl
-                WHERE cl.comment_id = rt.id
+                WHERE cl.comment_id = c.id
             ) AS like_count,
+
+            /*------------------------------------------
+              Number of replies specifically targeting
+              this comment
+            ------------------------------------------*/
 
             (
                 SELECT COUNT(*)
                 FROM inp_survey_comment rc
-                WHERE
-                    rc.parent_comment_id = rt.id
-                    AND rc.status = 1
+                WHERE rc.reply_to_comment_id = c.id
+                  AND rc.status = 1
             ) AS reply_count,
 
+            /*------------------------------------------
+              Liked By Current User
+            ------------------------------------------*/
+
             CASE
+
                 WHEN EXISTS (
+
                     SELECT 1
                     FROM inp_survey_comment_like cl
-                    WHERE
-                        cl.comment_id = rt.id
-                        AND cl.member_id = ?
+
+                    WHERE cl.comment_id = c.id
+                      AND cl.member_id = ?
+
                 )
+
                 THEN 1
+
                 ELSE 0
+
             END AS liked_by_me
 
-        FROM reply_tree rt
+        FROM inp_survey_comment c
 
         INNER JOIN user u
-            ON u.member_id = rt.member_id
+            ON u.member_id = c.member_id
 
-        LEFT JOIN inp_survey_comment parent_comment
-            ON parent_comment.id = rt.parent_comment_id
-            AND parent_comment.status = 1
+        /*----------------------------------------------
+          Exact comment being replied to
+        ----------------------------------------------*/
 
-        LEFT JOIN user parent_user
-            ON parent_user.member_id = parent_comment.member_id
+        LEFT JOIN inp_survey_comment reply_to
+            ON reply_to.id = c.reply_to_comment_id
+            AND reply_to.status = 1
 
-        ORDER BY rt.sort_path
+        /*----------------------------------------------
+          User who wrote targeted comment
+        ----------------------------------------------*/
+
+        LEFT JOIN user reply_to_user
+            ON reply_to_user.member_id =
+               reply_to.member_id
+
+        WHERE c.parent_comment_id = ?
+          AND c.status = 1
+
+        ORDER BY
+            c.created_at ASC,
+            c.id ASC
         `,
         [
-            comment_id,
-            member_id
+            member_id,
+            rootCommentId
         ]
     );
 
@@ -3440,56 +3545,59 @@ const getCommentReplies = async (comment_id, member_id) => {
     // Format + Decrypt
     //--------------------------------------------------
 
-    const map = {};
-    const tree = [];
+    const replies = rows.map(row => {
 
-    rows.forEach(row => {
+        //--------------------------------------------------
+        // Convert MySQL values
+        //--------------------------------------------------
 
-        row.depth = Number(row.depth);
-        row.like_count = Number(row.like_count);
-        row.reply_count = Number(row.reply_count);
-        row.liked_by_me = Boolean(row.liked_by_me);
+        row.like_count =
+            Number(row.like_count);
+
+        row.reply_count =
+            Number(row.reply_count);
+
+        row.liked_by_me =
+            Boolean(row.liked_by_me);
+
+        //--------------------------------------------------
+        // Decrypt reply-to email
+        //--------------------------------------------------
 
         let replyToEmail = null;
 
-        const encryptedValue = row.reply_to_email_encrypted;
+        const encryptedValue =
+            row.reply_to_email_encrypted;
 
-        console.log("--------------------------------");
-        console.log("Comment:", row.comment_id);
-        console.log("Reply To Member:", row.reply_to_member_id);
-        console.log("RAW EMAIL:", encryptedValue);
-        console.log("TYPE:", typeof encryptedValue);
-        console.log(
-            "BUFFER:",
-            Buffer.isBuffer(encryptedValue)
-        );
-
-        if (encryptedValue !== null && encryptedValue !== undefined) {
+        if (
+            encryptedValue !== null &&
+            encryptedValue !== undefined
+        ) {
 
             try {
 
                 let emailValue;
 
+                //--------------------------------------------------
+                // Buffer → String
+                //--------------------------------------------------
+
                 if (Buffer.isBuffer(encryptedValue)) {
 
-                    emailValue = encryptedValue.toString("utf8");
+                    emailValue =
+                        encryptedValue.toString("utf8");
 
                 } else {
 
-                    emailValue = String(encryptedValue);
+                    emailValue =
+                        String(encryptedValue);
                 }
 
-                emailValue = emailValue.trim();
-
-                console.log("EMAIL VALUE:", emailValue);
-                console.log("EMAIL LENGTH:", emailValue.length);
-                console.log(
-                    "IS HEX:",
-                    /^[0-9a-fA-F]+$/.test(emailValue)
-                );
+                emailValue =
+                    emailValue.trim();
 
                 //--------------------------------------------------
-                // If encrypted hex
+                // Encrypted HEX
                 //--------------------------------------------------
 
                 if (
@@ -3497,23 +3605,22 @@ const getCommentReplies = async (comment_id, member_id) => {
                     emailValue.length % 2 === 0
                 ) {
 
-                    replyToEmail = aesDecrypt(emailValue);
+                    replyToEmail =
+                        aesDecrypt(emailValue);
 
-                } else {
-
-                    //--------------------------------------------------
-                    // If database contains plaintext email
-                    //--------------------------------------------------
-
-                    if (emailValue.includes("@")) {
-                        replyToEmail = emailValue;
-                    }
                 }
 
-                console.log(
-                    "FINAL EMAIL:",
-                    replyToEmail
-                );
+                //--------------------------------------------------
+                // Plain Email Fallback
+                //--------------------------------------------------
+
+                else if (
+                    emailValue.includes("@")
+                ) {
+
+                    replyToEmail =
+                        emailValue;
+                }
 
             } catch (error) {
 
@@ -3527,41 +3634,31 @@ const getCommentReplies = async (comment_id, member_id) => {
         }
 
         //--------------------------------------------------
-        // Response
+        // Final Response Fields
         //--------------------------------------------------
 
-        row.reply_to_email = replyToEmail;
+        row.reply_to_email =
+            replyToEmail;
 
-        row.display_comment = replyToEmail
-            ? `@${replyToEmail} ${row.comment}`
-            : row.comment;
+        row.display_comment =
+            replyToEmail
+                ? `@${replyToEmail} ${row.comment}`
+                : row.comment;
+
+        //--------------------------------------------------
+        // Remove encrypted value
+        //--------------------------------------------------
 
         delete row.reply_to_email_encrypted;
 
-        row.replies = [];
-
-        map[row.comment_id] = row;
+        return row;
     });
 
     //--------------------------------------------------
-    // Build Nested Tree
+    // Return Flat Reply Array
     //--------------------------------------------------
 
-    rows.forEach(row => {
-
-        if (map[row.parent_comment_id]) {
-
-            map[row.parent_comment_id]
-                .replies
-                .push(row);
-
-        } else {
-
-            tree.push(row);
-        }
-    });
-
-    return tree;
+    return replies;
 };
 
 const getSurveyLikes = async (survey_id) => {

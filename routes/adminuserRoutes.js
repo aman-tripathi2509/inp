@@ -8,7 +8,8 @@ const {
     Adminlogin,
     AdminGetInpUsers,
     AdmingetINPUserById,
-    AdminAddInpUser
+    AdminAddInpUser,
+    AdminUpdateInpUser
 } = require("../controllers/AdminuserController");
 
 const { authMiddleware } = require("../middlewares/authMiddleware");
@@ -34,10 +35,18 @@ router.post(
 
 // Add User
 router.post(
-    "/addInpUser",
+    "/add-user",
     authMiddleware,
     upload.none(),
     AdminAddInpUser
+);
+
+// Update User
+router.post(
+    "/update-user",
+    authMiddleware,
+    upload.none(),
+    AdminUpdateInpUser
 );
 
 module.exports = router;

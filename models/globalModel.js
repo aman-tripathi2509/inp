@@ -155,27 +155,44 @@ const GlobalCompanySearch = async (page = 1, limit = 15, searchTerm = '', filter
     }
 };
 
-const GlobalUserSearch = async (page = 1, limit = 15, searchTerm = '', filters = {}) => {
+const GlobalUserSearch = async (
+    page = 1,
+    limit = 15,
+    searchTerm = '',
+    filters = {}
+) => {
     try {
         const offset = (page - 1) * limit;
 
         const conditions = [];
         const params = [];
 
-        // Global Search
+        // ==========================================
+        // GLOBAL SEARCH
+        // ==========================================
         if (searchTerm) {
             const likeTerm = `%${searchTerm}%`;
 
-            conditions.push(`(
-                u.first_name LIKE ?
-                OR u.middle_name LIKE ?
-                OR u.last_name LIKE ?
-                OR CONCAT(u.first_name,' ',u.last_name) LIKE ?
-                OR CONCAT(u.first_name,' ',u.middle_name,' ',u.last_name) LIKE ?
-                OR CAST(u.member_id AS CHAR) LIKE ?
-            )`);
+            conditions.push(`
+                (
+                    u.first_name LIKE ?
+                    OR u.middle_name LIKE ?
+                    OR u.last_name LIKE ?
+                    OR CONCAT(u.first_name, ' ', u.last_name) LIKE ?
+                    OR CONCAT(u.first_name, ' ', u.middle_name, ' ', u.last_name) LIKE ?
+                    OR CAST(u.member_id AS CHAR) LIKE ?
+                    OR cr.company_name LIKE ?
+                    OR industry_qa.answer LIKE ?
+                    OR sector_qa.answer LIKE ?
+                    OR up.job_title LIKE ?
+                )
+            `);
 
             params.push(
+                likeTerm,
+                likeTerm,
+                likeTerm,
+                likeTerm,
                 likeTerm,
                 likeTerm,
                 likeTerm,
@@ -185,9 +202,10 @@ const GlobalUserSearch = async (page = 1, limit = 15, searchTerm = '', filters =
             );
         }
 
-        // Country
+        // ==========================================
+        // COUNTRY
+        // ==========================================
         if (filters.country && filters.country.length > 0) {
-
             const countryConditions = [];
 
             filters.country.forEach(country => {
@@ -198,45 +216,59 @@ const GlobalUserSearch = async (page = 1, limit = 15, searchTerm = '', filters =
             conditions.push(`(${countryConditions.join(' OR ')})`);
         }
 
-        // Company
+        // ==========================================
+        // COMPANY
+        // ==========================================
         if (filters.company_name && filters.company_name.length > 0) {
-
             const companyConditions = [];
 
-            filters.company_name.forEach(company => {
-                companyConditions.push(`(
-                    uc.company_name LIKE ?
-                    OR uc.other_company LIKE ?
-                )`);
-
-                params.push(
-                    `%${company}%`,
-                    `%${company}%`
-                );
+            filters.company_name.forEach(companyId => {
+                companyConditions.push(`cr.company_id = ?`);
+                params.push(parseInt(companyId));
             });
 
             conditions.push(`(${companyConditions.join(' OR ')})`);
         }
 
-        // Job Title
+        // ==========================================
+        // JOB TITLE
+        // ==========================================
         if (filters.job_title) {
             conditions.push(`up.job_title LIKE ?`);
             params.push(`%${filters.job_title}%`);
         }
 
-        // Industry
+        // ==========================================
+        // SECTOR
+        // ==========================================
         if (filters.sector && filters.sector.length > 0) {
-
             const sectorConditions = [];
 
             filters.sector.forEach(sector => {
-                sectorConditions.push(`FIND_IN_SET(?, up.sector)`);
+                sectorConditions.push(`
+                    FIND_IN_SET(?, up.sector)
+                `);
+
                 params.push(sector);
             });
 
             conditions.push(`(${sectorConditions.join(' OR ')})`);
         }
 
+        // ==========================================
+        // INDUSTRY
+        // ==========================================
+        if (filters.industry) {
+            conditions.push(`
+                industry_qa.answer LIKE ?
+            `);
+
+            params.push(`%${filters.industry}%`);
+        }
+
+        // ==========================================
+        // NO SEARCH / FILTER
+        // ==========================================
         if (conditions.length === 0) {
             return {
                 data: [],
@@ -249,46 +281,109 @@ const GlobalUserSearch = async (page = 1, limit = 15, searchTerm = '', filters =
             };
         }
 
-        const whereClause = conditions.map(c => `(${c})`).join(" AND ");
+        const whereClause = conditions
+            .map(c => `(${c})`)
+            .join(" AND ");
 
-        // Count Query
+        // ==========================================
+        // COUNT QUERY
+        // ==========================================
         const countSql = `
             SELECT COUNT(DISTINCT u.id) AS total
+
             FROM user u
-            LEFT JOIN user_profiles up ON up.u_id = u.id
-            LEFT JOIN country c ON c.id = u.country
-            LEFT JOIN user_companies uc ON uc.u_id = u.id
+
+            LEFT JOIN user_profiles up
+                ON up.u_id = u.id
+
+            LEFT JOIN country c
+                ON c.id = u.country
+
+            LEFT JOIN user_companies uc
+                ON uc.u_id = u.id
+
+            LEFT JOIN trx_company_registration cr
+                ON cr.company_id = uc.company_name
+
+            LEFT JOIN lu_question_answer industry_qa
+                ON industry_qa.question_answer_id = up.industry
+
+            LEFT JOIN lu_question_answer sector_qa
+                ON sector_qa.question_answer_id = up.sector
+
+            LEFT JOIN trx_state st
+                ON st.state_id = u.state
+
             WHERE ${whereClause}
         `;
 
-        const [countRows] = await db.query(countSql, params);
+        const [countRows] = await db.query(
+            countSql,
+            params
+        );
 
-        // Data Query
+        // ==========================================
+        // DATA QUERY
+        // ==========================================
         const dataSql = `
             SELECT
                 u.id,
                 u.member_id,
+
                 u.first_name,
                 u.middle_name,
                 u.last_name,
+
                 c.country_name AS country,
-                u.state,
+
+                st.state_name AS state,
+
                 u.city,
+
                 up.profile_photo,
+
                 up.job_title,
-                COALESCE(uc.company_name, uc.other_company) AS company_name,
-                up.sector,
-                up.industry
+
+                cr.company_name AS company_name,
+
+                sector_qa.answer AS sector,
+
+                industry_qa.answer AS industry
+
             FROM user u
-            LEFT JOIN user_profiles up ON up.u_id = u.id
-            LEFT JOIN country c ON c.id = u.country
-            LEFT JOIN user_companies uc ON uc.u_id = u.id
+
+            LEFT JOIN user_profiles up
+                ON up.u_id = u.id
+
+            LEFT JOIN country c
+                ON c.id = u.country
+
+            LEFT JOIN user_companies uc
+                ON uc.u_id = u.id
+
+            LEFT JOIN trx_company_registration cr
+                ON cr.company_id = uc.company_name
+
+            LEFT JOIN lu_question_answer industry_qa
+                ON industry_qa.question_answer_id = up.industry
+
+            LEFT JOIN lu_question_answer sector_qa
+                ON sector_qa.question_answer_id = up.sector
+
+            LEFT JOIN trx_state st
+                ON st.state_id = u.state
+
             WHERE ${whereClause}
+
             ORDER BY u.first_name ASC
+
             LIMIT ? OFFSET ?
         `;
 
-        const [rows] = await db.query(dataSql, [...params, limit, offset]);
+        const [rows] = await db.query(
+            dataSql,
+            [...params, limit, offset]
+        );
 
         return {
             data: rows,
@@ -296,7 +391,9 @@ const GlobalUserSearch = async (page = 1, limit = 15, searchTerm = '', filters =
                 total: countRows[0].total,
                 page,
                 limit,
-                totalPages: Math.ceil(countRows[0].total / limit)
+                totalPages: Math.ceil(
+                    countRows[0].total / limit
+                )
             }
         };
 

@@ -464,7 +464,8 @@ const getNextMemberId = async () => {
     try {
         const lastMemberQuery = `
             SELECT member_id 
-            FROM user_demographic_details
+            FROM user
+            WHERE member_id IS NOT NULL
             ORDER BY id DESC 
             LIMIT 1
         `;
@@ -472,165 +473,879 @@ const getNextMemberId = async () => {
         const [rows] = await db.query(lastMemberQuery);
 
         let newMemberId;
-        const currentYear = new Date().getFullYear().toString();
-        const fixedPart = '10'; // Fixed part of the ID
+
+        const currentYear = new Date()
+            .getFullYear()
+            .toString();
+
+        const fixedPart = "10";
 
         if (rows.length > 0 && rows[0].member_id) {
+
             let lastMemberId = rows[0].member_id;
 
             if (typeof lastMemberId !== "string") {
                 lastMemberId = lastMemberId.toString();
             }
 
-            const lastSeq = parseInt(lastMemberId.substring(6), 10) || 0;
-            const nextSeq = (lastSeq + 1).toString().padStart(3, '0');
-            newMemberId = `${currentYear}${fixedPart}${nextSeq}`;
+            const lastSeq =
+                parseInt(lastMemberId.substring(6), 10) || 0;
+
+            const nextSeq =
+                (lastSeq + 1)
+                    .toString()
+                    .padStart(3, "0");
+
+            newMemberId =
+                `${currentYear}${fixedPart}${nextSeq}`;
+
         } else {
-            newMemberId = `${currentYear}${fixedPart}001`;
+
+            newMemberId =
+                `${currentYear}${fixedPart}001`;
         }
 
         return newMemberId;
+
     } catch (error) {
         throw error;
     }
 };
+
 
 // Check if personal_email, work_email, or mobile already exists
-const checkUserExists = async (personal_email, work_email, mobile) => {
+const checkUserExists = async (
+    personal_email,
+    work_email,
+    mobile
+) => {
     try {
+
         const sql = `
-            SELECT member_id, personal_email, work_email, mobile 
-            FROM user_demographic_details 
-            WHERE personal_email = ? OR work_email = ? OR mobile = ?
+            SELECT
+                id,
+                member_id,
+                personal_email,
+                work_email,
+                mobile
+            FROM user
+            WHERE personal_email = ?
+               OR work_email = ?
+               OR mobile = ?
             LIMIT 1
         `;
-        const [rows] = await db.query(sql, [personal_email, work_email, mobile]);
-        return rows.length > 0 ? rows[0] : null;
+
+        const [rows] = await db.query(
+            sql,
+            [
+                personal_email,
+                work_email,
+                mobile
+            ]
+        );
+
+        return rows.length > 0
+            ? rows[0]
+            : null;
+
     } catch (error) {
         throw error;
     }
 };
 
-// Insert new user (with duplicate check)
+// ====================== ADD INP USER ======================
 const AdminAddInpUser = async (userData) => {
-    const connection = await db.getConnection(); // transaction-safe
+
+    const connection = await db.getConnection();
+
     try {
+
         await connection.beginTransaction();
 
-        // ✅ Check if user already exists
-        const exists = await checkUserExists(userData.personal_email, userData.work_email, userData.mobile);
-        if (exists) {
-            let field = exists.personal_email === userData.personal_email
-                ? "personal_email"
-                : exists.work_email === userData.work_email
-                    ? "work_email"
-                    : "mobile";
 
-            throw new Error(`User with this ${field} already exists`);
+        // =====================================================
+        // 1. CHECK DUPLICATE USER
+        // =====================================================
+
+        const exists = await checkUserExists(
+            userData.personal_email,
+            userData.work_email,
+            userData.mobile
+        );
+
+        if (exists) {
+
+            let duplicateField = "email or mobile";
+
+            if (
+                userData.work_email &&
+                exists.work_email === userData.work_email
+            ) {
+                duplicateField = "work_email";
+            }
+            else if (
+                userData.personal_email &&
+                exists.personal_email === userData.personal_email
+            ) {
+                duplicateField = "personal_email";
+            }
+            else if (
+                userData.mobile &&
+                exists.mobile === userData.mobile
+            ) {
+                duplicateField = "mobile";
+            }
+
+            throw new Error(
+                `User with this ${duplicateField} already exists`
+            );
         }
 
-        // Generate unique member_id
+
+        // =====================================================
+        // 2. GENERATE MEMBER ID
+        // =====================================================
+
         const member_id = await getNextMemberId();
 
-        // Convert previous_employment array to JSON
-        const previousEmploymentJSON = JSON.stringify(userData.previous_employment || []);
 
-        // --- 1️⃣ Insert into user_demographic_details ---
-        const sql = `
-    INSERT INTO user_demographic_details (
-        member_id, first_name, middle_name, last_name, personal_email, work_email, mobile, dob, gender,
-        zip_code, country, state, enter_city, highest_education, household_income, mailing_address,
-        skills, work_status, employement_status, profession_type, Job_title, current_company, company_url,
-        Work_experience, seniority_level, job_responsibilities, work_experience_current_company,
-        sector_industry, business_model, company_revenue, company_type, employee_size, headquarter,
-        company_linkedin_url, specialities, about_product_and_services, about_user,
-        linkedin, facebook, twitter, instagram, previous_employment
-    )
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-`;
+        // =====================================================
+        // 3. INSERT INTO USER TABLE
+        // =====================================================
 
+        const userSql = `
+            INSERT INTO user
+            (
+                member_id,
+                referral_code,
+                referred_by,
 
-        const values = [
-    member_id,
-    userData.first_name,
-    userData.middle_name,
-    userData.last_name,
-    userData.personal_email,
-    userData.work_email,
-    userData.mobile,
-    userData.dob,
-    userData.gender,
-    userData.zip_code,
-    userData.country,
-    userData.state,
-    userData.enter_city,
-    userData.highest_education,
-    userData.household_income,
-    userData.mailing_address,
-    userData.skills,
-    userData.work_status,
-    userData.employement_status,
-    userData.profession_type,
-    userData.Job_title,
-    userData.current_company,
-    userData.company_url,
-    userData.Work_experience,
-    userData.seniority_level,
-    userData.job_responsibilities,
-    userData.work_experience_current_company,
-    userData.sector_industry,
-    userData.business_model,
-    userData.company_revenue,
-    userData.company_type,
-    userData.employee_size,
-    userData.headquarter,
-    userData.company_linkedin_url,
-    userData.specialities,
-    userData.about_product_and_services,
-    userData.about_user,
-    userData.linkedin,
-    userData.facebook,
-    userData.twitter,
-    userData.instagram,
-    previousEmploymentJSON
-];
+                first_name,
+                middle_name,
+                last_name,
+
+                personal_email,
+                password,
+                work_email,
+                mobile,
+
+                dob,
+                year_of_birth,
+                age_entered,
+                gender,
+
+                zip_code,
+                country,
+                other_country,
+                state,
+                city,
+                mailing_address,
+
+                user_id,
+                status,
+                t_c
+            )
+            VALUES
+            (
+                ?, ?, ?,
+                ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?,
+                ?, ?, ?
+            )
+        `;
 
 
-        const [result] = await connection.query(sql, values);
+        const userValues = [
 
-        // --- 2️⃣ Insert LinkedIn details into linkedin_data ---
-        const sqlLinkedin = `
-    INSERT INTO linkedin_data (
-        member_id, linkedin_name, linkedin_title, linkedin_company_name, linkedin_location, linkedin_company_url
-    ) VALUES (?, ?, ?, ?, ?, ?)
-`;
+            member_id,
 
-        const valuesLinkedin = [
-    member_id,
-    userData.linkedin_name,
-    userData.linkedin_title,
-    userData.linkedin_company_name,
-    userData.linkedin_company_location,
-    userData.linkedin_company_url
-];
+            userData.referral_code || null,
+            userData.referred_by || null,
 
-        await connection.query(sqlLinkedin, valuesLinkedin);
+            userData.first_name || null,
+            userData.middle_name || null,
+            userData.last_name || null,
 
-        // Commit the transaction
+            // encrypted personal email
+            userData.personal_email || null,
+
+            userData.password || null,
+
+            userData.work_email || null,
+
+            // encrypted mobile
+            userData.mobile || null,
+
+            userData.dob || null,
+            userData.year_of_birth || null,
+            userData.age_entered || null,
+            userData.gender || null,
+
+            userData.zip_code || null,
+
+            // country ID
+            userData.country || null,
+
+            userData.other_country || null,
+
+            // state ID
+            userData.state || null,
+
+            userData.city || null,
+            userData.mailing_address || null,
+
+            // logged-in lu_user.user_id
+            userData.user_id,
+
+            userData.status ?? 1,
+            userData.t_c ?? 1
+        ];
+
+
+        const [userResult] = await connection.query(
+            userSql,
+            userValues
+        );
+
+
+        // IMPORTANT:
+        // user.id becomes u_id for profile/company
+        const u_id = userResult.insertId;
+
+
+        // =====================================================
+        // 4. INSERT INTO USER_PROFILES
+        // =====================================================
+
+        const profileSql = `
+            INSERT INTO user_profiles
+            (
+                u_id,
+                profile_photo,
+
+                highest_education,
+                household_income,
+                skills,
+
+                work_status,
+                employement_status,
+                profession_type,
+
+                job_title,
+                work_experience,
+                seniority_level,
+                job_responsibility,
+                work_ex_c_company,
+
+                sector,
+                other_sector,
+
+                industry,
+                other_industry,
+
+                department,
+                function,
+
+                previous_employement,
+
+                linkedin,
+                facebook,
+                insta,
+                x,
+
+                about_user
+            )
+            VALUES
+            (
+                ?, ?,
+                ?, ?, ?,
+                ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?,
+                ?, ?,
+                ?, ?,
+                ?,
+                ?, ?, ?, ?,
+                ?
+            )
+        `;
+
+
+        // previous_employement can be string / array / object
+        let previousEmployment = null;
+
+        if (userData.previous_employement) {
+
+            previousEmployment =
+                typeof userData.previous_employement === "string"
+                    ? userData.previous_employement
+                    : JSON.stringify(
+                        userData.previous_employement
+                    );
+        }
+
+
+        const profileValues = [
+
+            // user.id
+            u_id,
+
+            userData.profile_photo || null,
+
+            // IDs
+            userData.highest_education || null,
+            userData.household_income || null,
+
+            userData.skills || null,
+
+            // IDs
+            userData.work_status || null,
+            userData.employement_status || null,
+            userData.profession_type || null,
+
+            userData.job_title || null,
+
+            // IDs
+            userData.work_experience || null,
+            userData.seniority_level || null,
+            userData.job_responsibility || null,
+            userData.work_ex_c_company || null,
+
+            // sector ID
+            userData.sector || null,
+
+            userData.other_sector || null,
+
+            // industry ID
+            userData.industry || null,
+
+            userData.other_industry || null,
+
+            // IDs
+            userData.department || null,
+            userData.function || null,
+
+            previousEmployment,
+
+            userData.linkedin || null,
+            userData.facebook || null,
+            userData.insta || null,
+            userData.x || null,
+
+            userData.about_user || null
+        ];
+
+
+        await connection.query(
+            profileSql,
+            profileValues
+        );
+
+
+        // =====================================================
+        // 5. INSERT INTO USER_COMPANIES
+        // =====================================================
+
+        const companySql = `
+            INSERT INTO user_companies
+            (
+                u_id,
+
+                company_name,
+                other_company,
+                company_url,
+
+                business_model,
+                company_revenue,
+                company_type,
+                company_size,
+
+                headquarter,
+                company_linkedin,
+                about_company
+            )
+            VALUES
+            (
+                ?,
+                ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?
+            )
+        `;
+
+
+        const companyValues = [
+
+            // user.id
+            u_id,
+
+            // company ID
+            userData.company_name || null,
+
+            userData.other_company || null,
+            userData.company_url || null,
+
+            // IDs
+            userData.business_model || null,
+            userData.company_revenue || null,
+            userData.company_type || null,
+            userData.company_size || null,
+
+            userData.headquarter || null,
+            userData.company_linkedin || null,
+            userData.about_company || null
+        ];
+
+
+        await connection.query(
+            companySql,
+            companyValues
+        );
+
+
+        // =====================================================
+        // 6. COMMIT TRANSACTION
+        // =====================================================
+
         await connection.commit();
 
-        return { insertId: result.insertId, member_id };
+
+        return {
+            insertId: u_id,
+            member_id
+        };
+
 
     } catch (error) {
+
         await connection.rollback();
+
         throw error;
+
     } finally {
+
         connection.release();
     }
 };
 
 
+// ====================== DYNAMIC UPDATE HELPER ======================
+const updateFields = async (
+    connection,
+    table,
+    fields,
+    whereColumn,
+    whereValue
+) => {
 
+    const updates = [];
+    const values = [];
+
+    Object.entries(fields).forEach(([column, value]) => {
+
+        // undefined = field was not sent
+        // null = intentionally set field to NULL
+        if (value !== undefined) {
+            updates.push(`${column} = ?`);
+            values.push(value);
+        }
+    });
+
+    // Nothing to update
+    if (updates.length === 0) {
+        return;
+    }
+
+    const sql = `
+        UPDATE ${table}
+        SET ${updates.join(", ")},
+            updated_on = CURRENT_TIMESTAMP
+        WHERE ${whereColumn} = ?
+    `;
+
+    values.push(whereValue);
+
+    await connection.query(sql, values);
+};
+
+
+// ====================== UPDATE INP USER ======================
+const AdminUpdateInpUser = async (userData) => {
+
+    const connection = await db.getConnection();
+
+    try {
+
+        await connection.beginTransaction();
+
+
+        // =====================================================
+        // 1. FIND USER
+        // =====================================================
+
+        const [existingUser] = await connection.query(
+            `
+            SELECT
+                id,
+                member_id
+            FROM user
+            WHERE member_id = ?
+            LIMIT 1
+            `,
+            [userData.member_id]
+        );
+
+
+        if (existingUser.length === 0) {
+
+            throw new Error("User not found");
+        }
+
+
+        // user.id
+        const u_id = existingUser[0].id;
+
+
+        // =====================================================
+        // 2. CHECK DUPLICATE EMAIL / MOBILE
+        // EXCLUDE CURRENT USER
+        // =====================================================
+
+        const duplicateConditions = [];
+        const duplicateValues = [];
+
+
+        if (userData.personal_email !== undefined) {
+
+            duplicateConditions.push(
+                "personal_email = ?"
+            );
+
+            duplicateValues.push(
+                userData.personal_email
+            );
+        }
+
+
+        if (userData.work_email !== undefined) {
+
+            duplicateConditions.push(
+                "work_email = ?"
+            );
+
+            duplicateValues.push(
+                userData.work_email
+            );
+        }
+
+
+        if (userData.mobile !== undefined) {
+
+            duplicateConditions.push(
+                "mobile = ?"
+            );
+
+            duplicateValues.push(
+                userData.mobile
+            );
+        }
+
+
+        if (duplicateConditions.length > 0) {
+
+            const duplicateSql = `
+                SELECT
+                    id,
+                    member_id,
+                    personal_email,
+                    work_email,
+                    mobile
+                FROM user
+                WHERE id != ?
+                  AND (
+                    ${duplicateConditions.join(" OR ")}
+                  )
+                LIMIT 1
+            `;
+
+
+            const [duplicateUser] =
+                await connection.query(
+                    duplicateSql,
+                    [
+                        u_id,
+                        ...duplicateValues
+                    ]
+                );
+
+
+            if (duplicateUser.length > 0) {
+
+                let duplicateField =
+                    "email or mobile";
+
+
+                if (
+                    userData.work_email !== undefined &&
+                    duplicateUser[0].work_email ===
+                    userData.work_email
+                ) {
+
+                    duplicateField = "work_email";
+                }
+
+                else if (
+                    userData.personal_email !== undefined &&
+                    duplicateUser[0].personal_email ===
+                    userData.personal_email
+                ) {
+
+                    duplicateField =
+                        "personal_email";
+                }
+
+                else if (
+                    userData.mobile !== undefined &&
+                    duplicateUser[0].mobile ===
+                    userData.mobile
+                ) {
+
+                    duplicateField = "mobile";
+                }
+
+
+                throw new Error(
+                    `User with this ${duplicateField} already exists`
+                );
+            }
+        }
+
+
+        // =====================================================
+        // 3. UPDATE USER TABLE
+        // =====================================================
+
+        const userFields = {
+
+            referral_code: userData.referral_code,
+            referred_by: userData.referred_by,
+
+            first_name: userData.first_name,
+            middle_name: userData.middle_name,
+            last_name: userData.last_name,
+
+            personal_email: userData.personal_email,
+            password: userData.password,
+            work_email: userData.work_email,
+            mobile: userData.mobile,
+
+            dob: userData.dob,
+            year_of_birth: userData.year_of_birth,
+            age_entered: userData.age_entered,
+            gender: userData.gender,
+
+            zip_code: userData.zip_code,
+
+            // IDs
+            country: userData.country,
+            other_country: userData.other_country,
+            state: userData.state,
+
+            city: userData.city,
+            mailing_address: userData.mailing_address,
+
+            status: userData.status,
+            t_c: userData.t_c
+        };
+
+
+        await updateFields(
+            connection,
+            "user",
+            userFields,
+            "id",
+            u_id
+        );
+
+
+        // =====================================================
+        // 4. UPDATE USER_PROFILES
+        // =====================================================
+
+        const profileFields = {
+
+            profile_photo:
+                userData.profile_photo,
+
+            // IDs
+            highest_education:
+                userData.highest_education,
+
+            household_income:
+                userData.household_income,
+
+            skills:
+                userData.skills,
+
+            work_status:
+                userData.work_status,
+
+            employement_status:
+                userData.employement_status,
+
+            profession_type:
+                userData.profession_type,
+
+            job_title:
+                userData.job_title,
+
+            work_experience:
+                userData.work_experience,
+
+            seniority_level:
+                userData.seniority_level,
+
+            job_responsibility:
+                userData.job_responsibility,
+
+            work_ex_c_company:
+                userData.work_ex_c_company,
+
+            sector:
+                userData.sector,
+
+            other_sector:
+                userData.other_sector,
+
+            industry:
+                userData.industry,
+
+            other_industry:
+                userData.other_industry,
+
+            department:
+                userData.department,
+
+            function:
+                userData.function,
+
+            linkedin:
+                userData.linkedin,
+
+            facebook:
+                userData.facebook,
+
+            insta:
+                userData.insta,
+
+            x:
+                userData.x,
+
+            about_user:
+                userData.about_user
+        };
+
+
+        // previous employment needs special handling
+        if (
+            userData.previous_employement !== undefined
+        ) {
+
+            profileFields.previous_employement =
+                userData.previous_employement &&
+                typeof userData.previous_employement
+                    !== "string"
+
+                    ? JSON.stringify(
+                        userData.previous_employement
+                    )
+
+                    : userData.previous_employement;
+        }
+
+
+        await updateFields(
+            connection,
+            "user_profiles",
+            profileFields,
+            "u_id",
+            u_id
+        );
+
+
+        // =====================================================
+        // 5. UPDATE USER_COMPANIES
+        // =====================================================
+
+        const companyFields = {
+
+            company_name:
+                userData.company_name,
+
+            other_company:
+                userData.other_company,
+
+            company_url:
+                userData.company_url,
+
+            business_model:
+                userData.business_model,
+
+            company_revenue:
+                userData.company_revenue,
+
+            company_type:
+                userData.company_type,
+
+            company_size:
+                userData.company_size,
+
+            headquarter:
+                userData.headquarter,
+
+            company_linkedin:
+                userData.company_linkedin,
+
+            about_company:
+                userData.about_company
+        };
+
+
+        await updateFields(
+            connection,
+            "user_companies",
+            companyFields,
+            "u_id",
+            u_id
+        );
+
+
+        // =====================================================
+        // 6. COMMIT
+        // =====================================================
+
+        await connection.commit();
+
+
+        return {
+            id: u_id,
+            member_id: userData.member_id
+        };
+
+
+    } catch (error) {
+
+        await connection.rollback();
+
+        throw error;
+
+    } finally {
+
+        connection.release();
+    }
+};
 
 
 
@@ -639,6 +1354,7 @@ module.exports = {
     AdminINPUserListing,
     AdminInpUserById,
     getNextMemberId,
+    checkUserExists,
     AdminAddInpUser,
-    checkUserExists
+    AdminUpdateInpUser
 };
