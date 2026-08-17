@@ -1356,7 +1356,9 @@ const getTwoFactorStatus = async (u_id) => {
             `SELECT
                 id,
                 u_id,
-                is_enabled
+                is_enabled,
+                auth_method,
+                is_verified
              FROM user_two_factor_auth
              WHERE u_id = ?
              LIMIT 1`,
@@ -1366,13 +1368,17 @@ const getTwoFactorStatus = async (u_id) => {
         if (rows.length === 0) {
             return {
                 exists: false,
-                is_enabled: false
+                is_enabled: false,
+                auth_method: null,
+                is_verified: false
             };
         }
 
         return {
             exists: true,
-            is_enabled: rows[0].is_enabled === 1
+            is_enabled: rows[0].is_enabled === 1,
+            auth_method: rows[0].auth_method,
+            is_verified: rows[0].is_verified === 1
         };
 
     } catch (error) {
@@ -1382,7 +1388,7 @@ const getTwoFactorStatus = async (u_id) => {
 
 
 /*--------------------------------------------------------------
-    Get User 2FA Secret
+    Get User 2FA Data
 --------------------------------------------------------------*/
 const getTwoFactorSecret = async (u_id) => {
     try {
@@ -1392,7 +1398,11 @@ const getTwoFactorSecret = async (u_id) => {
                 id,
                 u_id,
                 is_enabled,
-                secret
+                auth_method,
+                is_verified,
+                secret,
+                email_otp,
+                otp_expires_at
              FROM user_two_factor_auth
              WHERE u_id = ?
              LIMIT 1`,
@@ -1406,6 +1416,7 @@ const getTwoFactorSecret = async (u_id) => {
     }
 };
 
+
 /*--------------------------------------------------------------
     Create / Get 2FA Secret
 --------------------------------------------------------------*/
@@ -1414,17 +1425,25 @@ const createTwoFactorSecret = async (u_id, secret) => {
 
         // Check whether user already has a 2FA record
         const [existing] = await db.query(
-            `SELECT id, is_enabled, secret
+            `SELECT
+                id,
+                is_enabled,
+                is_verified,
+                auth_method,
+                secret
              FROM user_two_factor_auth
              WHERE u_id = ?
              LIMIT 1`,
             [u_id]
         );
 
-        // If record already exists
+        // -----------------------------------
+        // RECORD ALREADY EXISTS
+        // -----------------------------------
+
         if (existing.length > 0) {
 
-            // If 2FA is already enabled, don't generate a new secret
+            // If 2FA is already enabled
             if (existing[0].is_enabled === 1) {
                 return {
                     success: false,
@@ -1432,11 +1451,15 @@ const createTwoFactorSecret = async (u_id, secret) => {
                 };
             }
 
-            // Update existing secret
+            // Update existing setup
             await db.query(
                 `UPDATE user_two_factor_auth
-                 SET secret = ?,
-                     updated_on = CURRENT_TIMESTAMP
+                 SET
+                    secret = ?,
+                    auth_method = 'authenticator',
+                    is_verified = 0,
+                    is_enabled = 0,
+                    updated_on = CURRENT_TIMESTAMP
                  WHERE u_id = ?`,
                 [secret, u_id]
             );
@@ -1447,17 +1470,22 @@ const createTwoFactorSecret = async (u_id, secret) => {
             };
         }
 
-        // Create new 2FA record
+        // -----------------------------------
+        // CREATE NEW 2FA RECORD
+        // -----------------------------------
+
         const [result] = await db.query(
             `INSERT INTO user_two_factor_auth
              (
                 u_id,
                 is_enabled,
+                auth_method,
+                is_verified,
                 secret,
                 created_on,
                 updated_on
              )
-             VALUES (?, 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+             VALUES (?, 0, 'authenticator', 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
             [
                 u_id,
                 secret
@@ -1475,9 +1503,9 @@ const createTwoFactorSecret = async (u_id, secret) => {
 };
 
 /*--------------------------------------------------------------
-    Verify 2FA OTP
+    Get 2FA Verification Data
 --------------------------------------------------------------*/
-const verifyTwoFactorOTP = async (u_id, otp) => {
+const verifyTwoFactorOTP = async (u_id) => {
     try {
 
         const [rows] = await db.query(
@@ -1485,7 +1513,11 @@ const verifyTwoFactorOTP = async (u_id, otp) => {
                 id,
                 u_id,
                 is_enabled,
-                secret
+                auth_method,
+                is_verified,
+                secret,
+                email_otp,
+                otp_expires_at
              FROM user_two_factor_auth
              WHERE u_id = ?
              LIMIT 1`,
@@ -1499,17 +1531,9 @@ const verifyTwoFactorOTP = async (u_id, otp) => {
             };
         }
 
-        if (!rows[0].secret) {
-            return {
-                success: false,
-                code: "SECRET_NOT_FOUND"
-            };
-        }
-
         return {
             success: true,
-            secret: rows[0].secret,
-            is_enabled: rows[0].is_enabled
+            data: rows[0]
         };
 
     } catch (error) {
@@ -1526,13 +1550,204 @@ const enableTwoFactor = async (u_id) => {
 
         const [result] = await db.query(
             `UPDATE user_two_factor_auth
-             SET is_enabled = 1,
-                 updated_on = CURRENT_TIMESTAMP
+             SET
+                is_enabled = 1,
+                is_verified = 1,
+                email_otp = NULL,
+                otp_expires_at = NULL,
+                updated_on = CURRENT_TIMESTAMP
              WHERE u_id = ?`,
             [u_id]
         );
 
         return result.affectedRows > 0;
+
+    } catch (error) {
+        throw error;
+    }
+};
+
+
+/*--------------------------------------------------------------
+    Create / Update Email OTP for 2FA
+--------------------------------------------------------------*/
+const createEmailTwoFactorOTP = async (
+    u_id,
+    otpHash,
+    otpExpiresAt
+) => {
+    try {
+
+        // Check existing 2FA record
+        const [existing] = await db.query(
+            `SELECT id, is_enabled
+             FROM user_two_factor_auth
+             WHERE u_id = ?
+             LIMIT 1`,
+            [u_id]
+        );
+
+        // -----------------------------------
+        // RECORD EXISTS
+        // -----------------------------------
+
+        if (existing.length > 0) {
+
+            // Don't allow changing an already enabled 2FA method
+            // from this setup API.
+            if (existing[0].is_enabled === 1) {
+                return {
+                    success: false,
+                    code: "ALREADY_ENABLED"
+                };
+            }
+
+            await db.query(
+                `UPDATE user_two_factor_auth
+                 SET
+                    auth_method = 'email',
+                    is_verified = 0,
+                    is_enabled = 0,
+                    secret = NULL,
+                    email_otp = ?,
+                    otp_expires_at = ?,
+                    updated_on = CURRENT_TIMESTAMP
+                 WHERE u_id = ?`,
+                [
+                    otpHash,
+                    otpExpiresAt,
+                    u_id
+                ]
+            );
+
+            return {
+                success: true,
+                id: existing[0].id
+            };
+        }
+
+        // -----------------------------------
+        // CREATE NEW RECORD
+        // -----------------------------------
+
+        const [result] = await db.query(
+            `INSERT INTO user_two_factor_auth
+             (
+                u_id,
+                is_enabled,
+                auth_method,
+                is_verified,
+                secret,
+                email_otp,
+                otp_expires_at,
+                created_on,
+                updated_on
+             )
+             VALUES (
+                ?,
+                0,
+                'email',
+                0,
+                NULL,
+                ?,
+                ?,
+                CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP
+             )`,
+            [
+                u_id,
+                otpHash,
+                otpExpiresAt
+            ]
+        );
+
+        return {
+            success: true,
+            id: result.insertId
+        };
+
+    } catch (error) {
+        throw error;
+    }
+};
+
+
+/*--------------------------------------------------------------
+    Clear Email OTP
+--------------------------------------------------------------*/
+const clearEmailTwoFactorOTP = async (u_id) => {
+    try {
+
+        await db.query(
+            `UPDATE user_two_factor_auth
+             SET
+                email_otp = NULL,
+                otp_expires_at = NULL,
+                updated_on = CURRENT_TIMESTAMP
+             WHERE u_id = ?`,
+            [u_id]
+        );
+
+        return true;
+
+    } catch (error) {
+        throw error;
+    }
+};
+
+/*--------------------------------------------------------------
+    Create Email OTP for 2FA Login
+--------------------------------------------------------------*/
+const createEmailLoginOTP = async (
+    u_id,
+    otpHash,
+    otpExpiresAt
+) => {
+    try {
+
+        const [result] = await db.query(
+            `UPDATE user_two_factor_auth
+             SET
+                email_otp = ?,
+                otp_expires_at = ?,
+                updated_on = CURRENT_TIMESTAMP
+             WHERE u_id = ?
+               AND is_enabled = 1
+               AND auth_method = 'email'`,
+            [
+                otpHash,
+                otpExpiresAt,
+                u_id
+            ]
+        );
+
+        return {
+            success: result.affectedRows > 0
+        };
+
+    } catch (error) {
+        throw error;
+    }
+};
+
+
+/*--------------------------------------------------------------
+    Clear Email Login OTP
+--------------------------------------------------------------*/
+const clearEmailLoginOTP = async (u_id) => {
+    try {
+
+        await db.query(
+            `UPDATE user_two_factor_auth
+             SET
+                email_otp = NULL,
+                otp_expires_at = NULL,
+                updated_on = CURRENT_TIMESTAMP
+             WHERE u_id = ?`,
+            [u_id]
+        );
+
+        return true;
 
     } catch (error) {
         throw error;
@@ -1576,5 +1791,11 @@ module.exports = {
     getTwoFactorSecret,
     createTwoFactorSecret,
     verifyTwoFactorOTP,
-    enableTwoFactor
+    enableTwoFactor,
+
+    createEmailTwoFactorOTP,
+    clearEmailTwoFactorOTP,
+
+    createEmailLoginOTP,
+    clearEmailLoginOTP
     };

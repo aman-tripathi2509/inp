@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const dotenv = require("dotenv");
+const crypto = require("crypto");
 const { aesEncrypt, aesDecrypt } = require("../utils/encryption");
 const sendEmail = require("../utils/emailService");
 
@@ -284,36 +285,194 @@ const login = async (req, res) => {
         // CHECK 2FA STATUS
         // -----------------------------------
 
-        const twoFactorStatus = await User.getTwoFactorStatus(
-            user[0].id
+        // -----------------------------------
+// CHECK 2FA STATUS
+// -----------------------------------
+const twoFactorStatus = await User.getTwoFactorStatus(
+    user[0].id
+);
+
+// -----------------------------------
+// IF 2FA IS ENABLED
+// -----------------------------------
+if (twoFactorStatus.is_enabled) {
+
+    // -----------------------------------
+    // EMAIL 2FA
+    // -----------------------------------
+    if (twoFactorStatus.auth_method === "email") {
+
+        // -----------------------------------
+        // GET USER DETAILS
+        // -----------------------------------
+        const userDetails = await User.getLoggedinUser(
+            user[0].member_id
+        );
+
+        if (!userDetails || userDetails.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "User details not found"
+            });
+        }
+
+        // -----------------------------------
+        // DECRYPT PERSONAL EMAIL
+        // -----------------------------------
+        const personalEmail = userDetails[0].personal_email
+            ? aesDecrypt(userDetails[0].personal_email)
+            : null;
+
+        if (!personalEmail) {
+            return res.status(400).json({
+                success: false,
+                message: "User email not found"
+            });
+        }
+
+        // -----------------------------------
+        // GENERATE 6 DIGIT OTP
+        // -----------------------------------
+        const otp = crypto
+            .randomInt(100000, 1000000)
+            .toString();
+
+        // -----------------------------------
+        // HASH OTP
+        // -----------------------------------
+        const otpHash = crypto
+            .createHash("sha256")
+            .update(otp)
+            .digest("hex");
+
+        // -----------------------------------
+        // OTP VALID FOR 5 MINUTES
+        // -----------------------------------
+        const otpExpiresAt = new Date(
+            Date.now() + 5 * 60 * 1000
         );
 
         // -----------------------------------
-        // IF 2FA IS ENABLED
+        // SAVE LOGIN OTP
         // -----------------------------------
+        const otpResult = await User.createEmailLoginOTP(
+            user[0].id,
+            otpHash,
+            otpExpiresAt
+        );
 
-        if (twoFactorStatus.is_enabled) {
-
-            // Create temporary token only for 2FA verification
-            const twoFactorToken = jwt.sign(
-                {
-                    userId: user[0].id,
-                    member_id: user[0].member_id,
-                    purpose: "2FA_LOGIN"
-                },
-                process.env.JWT_SECRET,
-                {
-                    expiresIn: "5m"
-                }
-            );
-
-            return res.status(200).json({
-                success: true,
-                message: "Two-factor authentication required",
-                requires_2fa: true,
-                two_factor_token: twoFactorToken
+        if (!otpResult.success) {
+            return res.status(500).json({
+                success: false,
+                message: "Unable to generate login OTP"
             });
         }
+
+        // -----------------------------------
+        // SEND LOGIN OTP EMAIL
+        // -----------------------------------
+        try {
+
+            const emailResult = await sendEmail({
+                to: personalEmail,
+                subject: "Your Login Verification OTP",
+                content: `
+                    <div style="font-family: Arial, sans-serif;">
+
+                        <h2>Login Verification</h2>
+
+                        <p>
+                            Hello ${userDetails[0].first_name || "User"},
+                        </p>
+
+                        <p>
+                            We received a login attempt on your
+                            Industry & People account.
+                        </p>
+
+                        <p>
+                            Use the following OTP to complete your login:
+                        </p>
+
+                        <div style="
+                            font-size: 30px;
+                            font-weight: bold;
+                            letter-spacing: 8px;
+                            margin: 20px 0;
+                        ">
+                            ${otp}
+                        </div>
+
+                        <p>
+                            This OTP is valid for
+                            <strong>5 minutes</strong>.
+                        </p>
+
+                        <p>
+                            If you did not attempt to log in,
+                            please ignore this email.
+                        </p>
+
+                    </div>
+                `
+            });
+
+            if (!emailResult || !emailResult.status) {
+
+                await User.clearEmailLoginOTP(
+                    user[0].id
+                );
+
+                return res.status(500).json({
+                    success: false,
+                    message: "Unable to send login OTP"
+                });
+            }
+
+        } catch (emailError) {
+
+            console.error(
+                "Login OTP email error:",
+                emailError
+            );
+
+            await User.clearEmailLoginOTP(
+                user[0].id
+            );
+
+            return res.status(500).json({
+                success: false,
+                message: "Unable to send login OTP"
+            });
+        }
+    }
+
+    // -----------------------------------
+    // CREATE TEMPORARY 2FA TOKEN
+    // -----------------------------------
+    const twoFactorToken = jwt.sign(
+        {
+            userId: user[0].id,
+            member_id: user[0].member_id,
+            purpose: "2FA_LOGIN"
+        },
+        process.env.JWT_SECRET,
+        {
+            expiresIn: "5m"
+        }
+    );
+
+    // -----------------------------------
+    // RESPONSE
+    // -----------------------------------
+    return res.status(200).json({
+        success: true,
+        message: "Two-factor authentication required",
+        requires_2fa: true,
+        auth_method: twoFactorStatus.auth_method,
+        two_factor_token: twoFactorToken
+    });
+}
 
         // -----------------------------------
         // NORMAL LOGIN - 2FA NOT ENABLED
@@ -372,16 +531,18 @@ const login = async (req, res) => {
 };
 
 const verifyTwoFactorLogin = async (req, res) => {
+
     try {
 
         // -----------------------------------
-        // CHECK TEMPORARY 2FA TOKEN
+        // GET TEMPORARY 2FA TOKEN DATA
         // -----------------------------------
 
         const userId = req.user?.userId;
         const member_id = req.user?.member_id;
 
         if (!userId || !member_id) {
+
             return res.status(401).json({
                 success: false,
                 message: "Invalid two-factor authentication token"
@@ -393,6 +554,7 @@ const verifyTwoFactorLogin = async (req, res) => {
         // -----------------------------------
 
         if (req.user?.purpose !== "2FA_LOGIN") {
+
             return res.status(401).json({
                 success: false,
                 message: "Invalid two-factor authentication token"
@@ -406,17 +568,15 @@ const verifyTwoFactorLogin = async (req, res) => {
         const { otp } = req.body;
 
         if (!otp) {
+
             return res.status(400).json({
                 success: false,
                 message: "OTP is required"
             });
         }
 
-        // -----------------------------------
-        // OTP MUST BE 6 DIGITS
-        // -----------------------------------
-
         if (!/^\d{6}$/.test(String(otp))) {
+
             return res.status(400).json({
                 success: false,
                 message: "OTP must be a 6-digit number"
@@ -424,61 +584,166 @@ const verifyTwoFactorLogin = async (req, res) => {
         }
 
         // -----------------------------------
-        // GET 2FA SECRET
+        // GET 2FA DATA
         // -----------------------------------
 
-        const result = await User.getTwoFactorSecret(userId);
+        const rows = await User.getTwoFactorSecret(
+            userId
+        );
 
-        if (!result || result.length === 0) {
+        if (!rows || rows.length === 0) {
+
             return res.status(404).json({
                 success: false,
                 message: "2FA setup not found"
             });
         }
 
-        const twoFactorData = result[0];
+        const twoFactorData = rows[0];
 
-        if (!twoFactorData.secret) {
-            return res.status(404).json({
-                success: false,
-                message: "2FA secret not found"
-            });
-        }
+        // -----------------------------------
+        // CHECK 2FA ENABLED
+        // -----------------------------------
 
         if (twoFactorData.is_enabled !== 1) {
+
             return res.status(400).json({
                 success: false,
                 message: "Two-factor authentication is not enabled"
             });
         }
 
-        // -----------------------------------
-        // VERIFY OTP
-        // -----------------------------------
+        // =====================================================
+        // AUTHENTICATOR
+        // =====================================================
 
-        const verified = speakeasy.totp.verify({
-            secret: twoFactorData.secret,
-            encoding: "base32",
-            token: String(otp),
-            window: 1
-        });
+        if (
+            twoFactorData.auth_method ===
+            "authenticator"
+        ) {
 
-        // -----------------------------------
-        // INVALID OTP
-        // -----------------------------------
+            if (!twoFactorData.secret) {
 
-        if (!verified) {
+                return res.status(404).json({
+                    success: false,
+                    message: "2FA secret not found"
+                });
+            }
 
-            await recordLoginActivity(req, {
-                u_id: userId,
-                member_id: member_id,
-                login_type: 2,
-                login_status: 0
-            });
+            const verified =
+                speakeasy.totp.verify({
+
+                    secret: twoFactorData.secret,
+
+                    encoding: "base32",
+
+                    token: String(otp),
+
+                    window: 1
+                });
+
+            if (!verified) {
+
+                await recordLoginActivity(req, {
+                    u_id: userId,
+                    member_id: member_id,
+                    login_type: 2,
+                    login_status: 0
+                });
+
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid OTP"
+                });
+            }
+        }
+
+        // =====================================================
+        // EMAIL OTP
+        // =====================================================
+
+        else if (
+            twoFactorData.auth_method ===
+            "email"
+        ) {
+
+            if (!twoFactorData.email_otp) {
+
+                return res.status(400).json({
+                    success: false,
+                    message: "Email OTP not found"
+                });
+            }
+
+            // -----------------------------------
+            // CHECK EXPIRY
+            // -----------------------------------
+
+            if (
+                !twoFactorData.otp_expires_at ||
+                new Date(twoFactorData.otp_expires_at) <
+                new Date()
+            ) {
+
+                await User.clearEmailLoginOTP(
+                    userId
+                );
+
+                return res.status(400).json({
+                    success: false,
+                    message: "Email OTP has expired"
+                });
+            }
+
+            // -----------------------------------
+            // HASH ENTERED OTP
+            // -----------------------------------
+
+            const otpHash = crypto
+                .createHash("sha256")
+                .update(String(otp))
+                .digest("hex");
+
+            // -----------------------------------
+            // VERIFY
+            // -----------------------------------
+
+            if (
+                otpHash !==
+                twoFactorData.email_otp
+            ) {
+
+                await recordLoginActivity(req, {
+                    u_id: userId,
+                    member_id: member_id,
+                    login_type: 2,
+                    login_status: 0
+                });
+
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid OTP"
+                });
+            }
+
+            // -----------------------------------
+            // CLEAR OTP AFTER SUCCESS
+            // -----------------------------------
+
+            await User.clearEmailLoginOTP(
+                userId
+            );
+        }
+
+        // =====================================================
+        // INVALID AUTH METHOD
+        // =====================================================
+
+        else {
 
             return res.status(400).json({
                 success: false,
-                message: "Invalid OTP"
+                message: "Invalid 2FA authentication method"
             });
         }
 
@@ -497,12 +762,20 @@ const verifyTwoFactorLogin = async (req, res) => {
             }
         );
 
+        // -----------------------------------
+        // LOGIN ACTIVITY
+        // -----------------------------------
+
         await recordLoginActivity(req, {
             u_id: userId,
             member_id: member_id,
             login_type: 2,
             login_status: 1
         });
+
+        // -----------------------------------
+        // CREATE LOGIN SESSION
+        // -----------------------------------
 
         await createLoginSession(req, {
             u_id: userId,
@@ -729,17 +1002,55 @@ const getUserDetail = async (req, res) => {
 
         const userData = user[0];
 
-        // Decrypt personal email
+        // ==================================================
+        // PREVIOUS EMPLOYMENT
+        // ==================================================
+
+        let previousEmployment = [];
+
+        if (userData.previous_employement) {
+            try {
+                previousEmployment =
+                    typeof userData.previous_employement === "string"
+                        ? JSON.parse(userData.previous_employement)
+                        : userData.previous_employement;
+
+                if (!Array.isArray(previousEmployment)) {
+                    previousEmployment = [];
+                }
+            } catch (error) {
+                console.error(
+                    "Error parsing previous employment:",
+                    error
+                );
+
+                previousEmployment = [];
+            }
+        }
+
+        userData.previous_employement = previousEmployment.map(
+            (employment) => ({
+                company_name: employment.company_name || "",
+                job_title: employment.job_title || "",
+                from: employment.from || "",
+                to: employment.to || "",
+                location: employment.location || "",
+                job_description: employment.job_description || ""
+            })
+        );
+
+        // ==================================================
+        // DECRYPT PERSONAL EMAIL
+        // ==================================================
+
         userData.personal_email = userData.personal_email
             ? aesDecrypt(userData.personal_email)
             : null;
 
-        // Decrypt work email
         userData.work_email = userData.work_email
             ? aesDecrypt(userData.work_email)
             : null;
 
-        // Decrypt mobile
         userData.mobile = userData.mobile
             ? aesDecrypt(userData.mobile)
             : null;
@@ -1894,6 +2205,26 @@ const setupTwoFactor = async (req, res) => {
     try {
 
         // -----------------------------------
+        // GET AUTH METHOD
+        // -----------------------------------
+
+        const { auth_method } = req.body;
+
+        if (!auth_method) {
+            return res.status(400).json({
+                success: false,
+                message: "auth_method is required"
+            });
+        }
+
+        if (!["authenticator", "email"].includes(auth_method)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid auth_method. Use authenticator or email"
+            });
+        }
+
+        // -----------------------------------
         // GET LOGGED-IN USER
         // -----------------------------------
 
@@ -1901,6 +2232,7 @@ const setupTwoFactor = async (req, res) => {
 
         if (!u_id) {
             return res.status(401).json({
+                success: false,
                 message: "User information not found in token"
             });
         }
@@ -1926,6 +2258,7 @@ const setupTwoFactor = async (req, res) => {
 
         if (!member_id) {
             return res.status(401).json({
+                success: false,
                 message: "Member information not found in token"
             });
         }
@@ -1942,11 +2275,157 @@ const setupTwoFactor = async (req, res) => {
         const userData = user[0];
 
         // -----------------------------------
+        // DECRYPT PERSONAL EMAIL
+        // -----------------------------------
+
+        const personalEmail = userData.personal_email
+            ? aesDecrypt(userData.personal_email)
+            : null;
+
+        if (!personalEmail) {
+            return res.status(400).json({
+                success: false,
+                message: "User email not found"
+            });
+        }
+
+        // ==================================================
+        // EMAIL OTP 2FA
+        // ==================================================
+
+        if (auth_method === "email") {
+
+            // -----------------------------------
+            // GENERATE 6 DIGIT OTP
+            // -----------------------------------
+
+            const otp = crypto
+                .randomInt(100000, 1000000)
+                .toString();
+
+            // -----------------------------------
+            // HASH OTP BEFORE STORING
+            // -----------------------------------
+
+            const otpHash = crypto
+                .createHash("sha256")
+                .update(otp)
+                .digest("hex");
+
+            // -----------------------------------
+            // OTP VALID FOR 5 MINUTES
+            // -----------------------------------
+
+            const otpExpiresAt = new Date(
+                Date.now() + 5 * 60 * 1000
+            );
+
+            // -----------------------------------
+            // SAVE OTP
+            // -----------------------------------
+
+            const result = await User.createEmailTwoFactorOTP(
+                u_id,
+                otpHash,
+                otpExpiresAt
+            );
+
+            if (!result.success) {
+
+                if (result.code === "ALREADY_ENABLED") {
+                    return res.status(400).json({
+                        success: false,
+                        message:
+                            "Two-factor authentication is already enabled"
+                    });
+                }
+
+                return res.status(500).json({
+                    success: false,
+                    message:
+                        "Unable to setup email two-factor authentication"
+                });
+            }
+
+            // -----------------------------------
+            // SEND OTP EMAIL
+            // -----------------------------------
+
+            const emailResult = await sendEmail({
+                to: personalEmail,
+                subject: "Your Two-Factor Authentication OTP",
+                content: `
+                    <div style="font-family: Arial, sans-serif;">
+
+                        <h2>Two-Factor Authentication</h2>
+
+                        <p>
+                            Hello ${userData.first_name || "User"},
+                        </p>
+
+                        <p>
+                            Use the following verification code to
+                            enable Two-Factor Authentication:
+                        </p>
+
+                        <div style="
+                            font-size: 30px;
+                            font-weight: bold;
+                            letter-spacing: 8px;
+                            margin: 20px 0;
+                        ">
+                            ${otp}
+                        </div>
+
+                        <p>
+                            This OTP is valid for
+                            <strong>5 minutes</strong>.
+                        </p>
+
+                        <p>
+                            If you did not request this, please ignore
+                            this email.
+                        </p>
+
+                    </div>
+                `
+            });
+
+            // -----------------------------------
+            // EMAIL FAILED
+            // -----------------------------------
+
+            if (!emailResult.status) {
+
+                // Clear OTP if email could not be sent
+                await User.clearEmailTwoFactorOTP(u_id);
+
+                return res.status(500).json({
+                    success: false,
+                    message: "Unable to send OTP email"
+                });
+            }
+
+            // -----------------------------------
+            // EMAIL OTP SENT SUCCESSFULLY
+            // -----------------------------------
+
+            return res.status(200).json({
+                success: true,
+                message: "2FA email OTP sent successfully"
+            });
+        }
+
+        // ==================================================
+        // AUTHENTICATOR APP 2FA
+        // ==================================================
+
+        // -----------------------------------
         // GENERATE SECRET
         // -----------------------------------
 
         const secret = speakeasy.generateSecret({
-            name: `Industry & People (${userData.personal_email})`,
+            name: `Industry & People (${personalEmail})`,
             issuer: "Industry & People"
         });
 
@@ -1971,7 +2450,8 @@ const setupTwoFactor = async (req, res) => {
 
             return res.status(500).json({
                 success: false,
-                message: "Unable to setup two-factor authentication"
+                message:
+                    "Unable to setup two-factor authentication"
             });
         }
 
@@ -2010,10 +2490,12 @@ const setupTwoFactor = async (req, res) => {
     }
 };
 
+
 /*--------------------------------------------------------------
-    Verify 2FA OTP
+    Verify 2FA Setup
 --------------------------------------------------------------*/
 const verifyTwoFactor = async (req, res) => {
+
     try {
 
         // -----------------------------------
@@ -2054,10 +2536,10 @@ const verifyTwoFactor = async (req, res) => {
         }
 
         // -----------------------------------
-        // GET 2FA SECRET
+        // GET 2FA DATA
         // -----------------------------------
 
-        const result = await User.verifyTwoFactorOTP(u_id, otp);
+        const result = await User.verifyTwoFactorOTP(u_id);
 
         if (!result.success) {
 
@@ -2068,38 +2550,109 @@ const verifyTwoFactor = async (req, res) => {
                 });
             }
 
-            if (result.code === "SECRET_NOT_FOUND") {
-                return res.status(404).json({
-                    success: false,
-                    message: "2FA secret not found"
-                });
-            }
-
             return res.status(400).json({
                 success: false,
                 message: "Unable to verify 2FA"
             });
         }
 
-        // -----------------------------------
-        // VERIFY OTP
-        // -----------------------------------
-
-        const verified = speakeasy.totp.verify({
-            secret: result.secret,
-            encoding: "base32",
-            token: String(otp),
-            window: 1
-        });
+        const twoFactorData = result.data;
 
         // -----------------------------------
-        // INVALID OTP
+        // CHECK AUTH METHOD
         // -----------------------------------
 
-        if (!verified) {
+        const authMethod = twoFactorData.auth_method;
+
+        // =====================================================
+        // AUTHENTICATOR APP
+        // =====================================================
+
+        if (authMethod === "authenticator") {
+
+            if (!twoFactorData.secret) {
+                return res.status(404).json({
+                    success: false,
+                    message: "2FA secret not found"
+                });
+            }
+
+            const verified = speakeasy.totp.verify({
+                secret: twoFactorData.secret,
+                encoding: "base32",
+                token: String(otp),
+                window: 1
+            });
+
+            if (!verified) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid authenticator OTP"
+                });
+            }
+        }
+
+        // =====================================================
+        // EMAIL OTP
+        // =====================================================
+
+        else if (authMethod === "email") {
+
+            if (!twoFactorData.email_otp) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Email OTP not found or already used"
+                });
+            }
+
+            // -----------------------------------
+            // CHECK OTP EXPIRY
+            // -----------------------------------
+
+            if (
+                !twoFactorData.otp_expires_at ||
+                new Date(twoFactorData.otp_expires_at) < new Date()
+            ) {
+
+                await User.clearEmailTwoFactorOTP(u_id);
+
+                return res.status(400).json({
+                    success: false,
+                    message: "Email OTP has expired"
+                });
+            }
+
+            // -----------------------------------
+            // HASH ENTERED OTP
+            // -----------------------------------
+
+            const otpHash = crypto
+                .createHash("sha256")
+                .update(String(otp))
+                .digest("hex");
+
+            // -----------------------------------
+            // COMPARE OTP
+            // -----------------------------------
+
+            if (otpHash !== twoFactorData.email_otp) {
+
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid email OTP"
+                });
+            }
+        }
+
+        // =====================================================
+        // INVALID METHOD
+        // =====================================================
+
+        else {
+
             return res.status(400).json({
                 success: false,
-                message: "Invalid OTP"
+                message: "Invalid 2FA authentication method"
             });
         }
 
@@ -2110,9 +2663,10 @@ const verifyTwoFactor = async (req, res) => {
         const enabled = await User.enableTwoFactor(u_id);
 
         if (!enabled) {
+
             return res.status(500).json({
                 success: false,
-                message: "OTP verified but failed to enable 2FA"
+                message: "Unable to enable two-factor authentication"
             });
         }
 
