@@ -14,7 +14,7 @@ class Contact {
 
         const [result] = await db.execute(
             `
-            INSERT INTO inp_contact
+            INSERT INTO inp_contact_us
             (
                 name,
                 email,

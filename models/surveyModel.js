@@ -991,6 +991,19 @@ const getMySurveys = async (
                 END
             ) AS responses,
 
+            (
+                SELECT COUNT(*)
+                FROM inp_survey_like sl
+                WHERE sl.survey_id = s.id
+            ) AS like_count,
+
+            (
+                SELECT COUNT(*)
+                FROM inp_survey_comment sc
+                WHERE sc.survey_id = s.id
+                AND sc.status = 1
+            ) AS comment_count,
+
             CONCAT(
                 TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM
                     ROUND(
@@ -3707,6 +3720,794 @@ const getSurveyLikes = async (survey_id) => {
     return rows;
 };
 
+
+
+// like and comment for my survey
+const getMySurveyEngagement = async (
+    survey_id,
+    member_id
+) => {
+
+    //--------------------------------------------------
+    // Verify survey belongs to logged-in user
+    //--------------------------------------------------
+
+    const [[survey]] = await db.query(
+        `
+        SELECT
+            id,
+            member_id,
+            survey_title,
+            status
+        FROM inp_survey
+        WHERE id = ?
+          AND member_id = ?
+        LIMIT 1
+        `,
+        [
+            survey_id,
+            member_id
+        ]
+    );
+
+    if (!survey) {
+        const error = new Error(
+            "Survey not found or you are not the owner."
+        );
+
+        error.statusCode = 404;
+
+        throw error;
+    }
+
+    //--------------------------------------------------
+    // Like Count
+    //--------------------------------------------------
+
+    const [[likeCount]] = await db.query(
+        `
+        SELECT COUNT(*) AS total_likes
+        FROM inp_survey_like
+        WHERE survey_id = ?
+        `,
+        [survey_id]
+    );
+
+    //--------------------------------------------------
+    // Comment Count
+    //--------------------------------------------------
+
+    const [[commentCount]] = await db.query(
+        `
+        SELECT COUNT(*) AS total_comments
+        FROM inp_survey_comment
+        WHERE survey_id = ?
+          AND status = 1
+        `,
+        [survey_id]
+    );
+
+    //--------------------------------------------------
+    // Likes
+    //--------------------------------------------------
+
+    const likes = await getSurveyLikes(survey_id);
+
+    //--------------------------------------------------
+    // Comments
+    //--------------------------------------------------
+
+    const comments =
+        await getMySurveyComments(
+            survey_id,
+            member_id
+        );
+
+    //--------------------------------------------------
+    // Response
+    //--------------------------------------------------
+
+    return {
+        survey_id: survey.id,
+        survey_title: survey.survey_title,
+        status: survey.status,
+
+        like_count:
+            Number(likeCount.total_likes || 0),
+
+        comment_count:
+            Number(commentCount.total_comments || 0),
+
+        likes,
+        comments
+    };
+};
+
+const getMySurveyComments = async (
+    survey_id,
+    member_id
+) => {
+
+    //--------------------------------------------------
+    // Verify ownership
+    //--------------------------------------------------
+
+    const [[survey]] = await db.query(
+        `
+        SELECT id
+        FROM inp_survey
+        WHERE id = ?
+          AND member_id = ?
+        LIMIT 1
+        `,
+        [
+            survey_id,
+            member_id
+        ]
+    );
+
+    if (!survey) {
+        const error = new Error(
+            "You are not authorized to view this survey."
+        );
+
+        error.statusCode = 403;
+
+        throw error;
+    }
+
+    //--------------------------------------------------
+    // Fetch Comments
+    //--------------------------------------------------
+
+    const [rows] = await db.query(
+        `
+        SELECT
+
+            c.id AS comment_id,
+            c.survey_id,
+            c.member_id,
+
+            CONCAT_WS(
+                ' ',
+                u.first_name,
+                NULLIF(u.middle_name, ''),
+                u.last_name
+            ) AS member_name,
+
+            up.profile_photo,
+            up.job_title,
+
+            c.comment,
+            c.created_at,
+
+            (
+                SELECT COUNT(*)
+                FROM inp_survey_comment_like cl
+                WHERE cl.comment_id = c.id
+            ) AS like_count,
+
+            (
+                SELECT COUNT(*)
+                FROM inp_survey_comment r
+                WHERE r.parent_comment_id = c.id
+                  AND r.status = 1
+            ) AS reply_count,
+
+            CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM inp_survey_comment_like cl
+                    WHERE cl.comment_id = c.id
+                      AND cl.member_id = ?
+                )
+                THEN TRUE
+                ELSE FALSE
+            END AS liked_by_me
+
+        FROM inp_survey_comment c
+
+        INNER JOIN user u
+            ON u.member_id = c.member_id
+
+        LEFT JOIN user_profiles up
+            ON up.u_id = u.id
+
+        WHERE c.survey_id = ?
+          AND c.parent_comment_id IS NULL
+          AND c.status = 1
+
+        ORDER BY c.created_at DESC
+        `,
+        [
+            member_id,
+            survey_id
+        ]
+    );
+
+    return rows.map(row => ({
+        ...row,
+
+        like_count:
+            Number(row.like_count || 0),
+
+        reply_count:
+            Number(row.reply_count || 0),
+
+        liked_by_me:
+            Boolean(row.liked_by_me)
+    }));
+};
+
+const getMySurveyCommentReplies = async (
+    survey_id,
+    comment_id,
+    member_id
+) => {
+
+    //--------------------------------------------------
+    // Verify Survey Ownership
+    //--------------------------------------------------
+
+    const [[survey]] = await db.query(
+        `
+        SELECT
+            id
+        FROM inp_survey
+        WHERE
+            id = ?
+            AND member_id = ?
+        LIMIT 1
+        `,
+        [
+            survey_id,
+            member_id
+        ]
+    );
+
+    if (!survey) {
+
+        const error = new Error(
+            "Survey not found or you are not the owner."
+        );
+
+        error.statusCode = 404;
+
+        throw error;
+    }
+
+    //--------------------------------------------------
+    // Verify Comment Belongs To Survey
+    //--------------------------------------------------
+
+    const [[comment]] = await db.query(
+        `
+        SELECT
+            id,
+            survey_id,
+            parent_comment_id
+        FROM inp_survey_comment
+        WHERE
+            id = ?
+            AND survey_id = ?
+            AND status = 1
+        LIMIT 1
+        `,
+        [
+            comment_id,
+            survey_id
+        ]
+    );
+
+    if (!comment) {
+
+        const error = new Error(
+            "Comment not found."
+        );
+
+        error.statusCode = 404;
+
+        throw error;
+    }
+
+    //--------------------------------------------------
+    // Determine Root Comment
+    //--------------------------------------------------
+
+    const rootCommentId =
+        comment.parent_comment_id ||
+        comment.id;
+
+    //--------------------------------------------------
+    // Fetch Replies
+    //--------------------------------------------------
+
+    const [rows] = await db.query(
+        `
+        SELECT
+
+            c.id AS comment_id,
+
+            c.parent_comment_id,
+
+            c.reply_to_comment_id,
+
+            c.survey_id,
+
+            c.member_id,
+
+            CONCAT_WS(
+                ' ',
+                u.first_name,
+                NULLIF(u.middle_name, ''),
+                u.last_name
+            ) AS member_name,
+
+            up.profile_photo,
+
+            up.job_title,
+
+            c.comment,
+
+            c.created_at,
+
+            --------------------------------------------------
+            -- Comment Like Count
+            --------------------------------------------------
+
+            (
+                SELECT COUNT(*)
+                FROM inp_survey_comment_like cl
+                WHERE cl.comment_id = c.id
+            ) AS like_count,
+
+            --------------------------------------------------
+            -- Liked By Creator
+            --------------------------------------------------
+
+            CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM inp_survey_comment_like cl
+                    WHERE
+                        cl.comment_id = c.id
+                        AND cl.member_id = ?
+                )
+                THEN TRUE
+                ELSE FALSE
+            END AS liked_by_me
+
+        FROM inp_survey_comment c
+
+        INNER JOIN user u
+            ON u.member_id = c.member_id
+
+        LEFT JOIN user_profiles up
+            ON up.u_id = u.id
+
+        WHERE
+            c.survey_id = ?
+            AND c.parent_comment_id = ?
+            AND c.status = 1
+
+        ORDER BY c.created_at ASC
+        `,
+        [
+            member_id,
+            survey_id,
+            rootCommentId
+        ]
+    );
+
+    //--------------------------------------------------
+    // Normalize Response
+    //--------------------------------------------------
+
+    return rows.map(row => ({
+        ...row,
+
+        like_count:
+            Number(row.like_count || 0),
+
+        liked_by_me:
+            Boolean(row.liked_by_me)
+    }));
+};
+
+const toggleMySurveyCommentLike = async (
+    survey_id,
+    comment_id,
+    member_id
+) => {
+
+    //--------------------------------------------------
+    // Verify Survey Ownership
+    //--------------------------------------------------
+
+    const [[survey]] = await db.query(
+        `
+        SELECT
+            id
+        FROM inp_survey
+        WHERE
+            id = ?
+            AND member_id = ?
+        LIMIT 1
+        `,
+        [
+            survey_id,
+            member_id
+        ]
+    );
+
+    if (!survey) {
+
+        const error = new Error(
+            "Survey not found or you are not the owner."
+        );
+
+        error.statusCode = 403;
+
+        throw error;
+    }
+
+    //--------------------------------------------------
+    // Verify Comment Belongs To Survey
+    //--------------------------------------------------
+
+    const [[comment]] = await db.query(
+        `
+        SELECT
+            id,
+            survey_id,
+            status
+        FROM inp_survey_comment
+        WHERE
+            id = ?
+            AND survey_id = ?
+        LIMIT 1
+        `,
+        [
+            comment_id,
+            survey_id
+        ]
+    );
+
+    if (!comment) {
+
+        const error = new Error(
+            "Comment not found."
+        );
+
+        error.statusCode = 404;
+
+        throw error;
+    }
+
+    if (comment.status !== 1) {
+
+        const error = new Error(
+            "This comment is no longer available."
+        );
+
+        error.statusCode = 400;
+
+        throw error;
+    }
+
+    //--------------------------------------------------
+    // Check Existing Like
+    //--------------------------------------------------
+
+    const [[existingLike]] = await db.query(
+        `
+        SELECT
+            id
+        FROM inp_survey_comment_like
+        WHERE
+            comment_id = ?
+            AND member_id = ?
+        LIMIT 1
+        `,
+        [
+            comment_id,
+            member_id
+        ]
+    );
+
+    const liked = !existingLike;
+
+    //--------------------------------------------------
+    // Toggle Like
+    //--------------------------------------------------
+
+    if (existingLike) {
+
+        await db.query(
+            `
+            DELETE
+            FROM inp_survey_comment_like
+            WHERE id = ?
+            `,
+            [
+                existingLike.id
+            ]
+        );
+
+    } else {
+
+        await db.query(
+            `
+            INSERT INTO inp_survey_comment_like
+            (
+                comment_id,
+                member_id
+            )
+            VALUES
+            (?, ?)
+            `,
+            [
+                comment_id,
+                member_id
+            ]
+        );
+    }
+
+    //--------------------------------------------------
+    // Get Updated Like Count
+    //--------------------------------------------------
+
+    const [[likeCount]] = await db.query(
+        `
+        SELECT
+            COUNT(*) AS total_likes
+        FROM inp_survey_comment_like
+        WHERE comment_id = ?
+        `,
+        [
+            comment_id
+        ]
+    );
+
+    //--------------------------------------------------
+    // Return Result
+    //--------------------------------------------------
+
+    return {
+        survey_id,
+        comment_id,
+        member_id,
+        liked,
+        total_likes:
+            Number(likeCount.total_likes || 0)
+    };
+};
+
+const addMySurveyCommentReply = async (
+    survey_id,
+    comment_id,
+    member_id,
+    comment,
+    reply_to_comment_id = null
+) => {
+
+    //--------------------------------------------------
+    // Verify Survey Ownership
+    //--------------------------------------------------
+
+    const [[survey]] = await db.query(
+        `
+        SELECT id
+        FROM inp_survey
+        WHERE
+            id = ?
+            AND member_id = ?
+        LIMIT 1
+        `,
+        [
+            survey_id,
+            member_id
+        ]
+    );
+
+    if (!survey) {
+
+        const error = new Error(
+            "Survey not found or you are not the owner."
+        );
+
+        error.statusCode = 403;
+
+        throw error;
+    }
+
+    //--------------------------------------------------
+    // Verify Target Comment
+    //--------------------------------------------------
+
+    const [[parentComment]] = await db.query(
+        `
+        SELECT
+            id,
+            survey_id,
+            parent_comment_id,
+            status
+        FROM inp_survey_comment
+        WHERE
+            id = ?
+            AND survey_id = ?
+            AND status = 1
+        LIMIT 1
+        `,
+        [
+            comment_id,
+            survey_id
+        ]
+    );
+
+    if (!parentComment) {
+
+        const error = new Error(
+            "Comment not found."
+        );
+
+        error.statusCode = 404;
+
+        throw error;
+    }
+
+    //--------------------------------------------------
+    // Determine Root Comment
+    //--------------------------------------------------
+
+    const rootCommentId =
+        parentComment.parent_comment_id ||
+        parentComment.id;
+
+    //--------------------------------------------------
+    // Validate reply_to_comment_id
+    //--------------------------------------------------
+
+    if (reply_to_comment_id !== null) {
+
+        const [[replyTarget]] = await db.query(
+            `
+            SELECT
+                id,
+                survey_id,
+                parent_comment_id,
+                status
+            FROM inp_survey_comment
+            WHERE
+                id = ?
+                AND survey_id = ?
+                AND status = 1
+            LIMIT 1
+            `,
+            [
+                reply_to_comment_id,
+                survey_id
+            ]
+        );
+
+        if (!replyTarget) {
+
+            const error = new Error(
+                "Reply target not found."
+            );
+
+            error.statusCode = 404;
+
+            throw error;
+        }
+
+        //--------------------------------------------------
+        // Ensure target belongs to same thread
+        //--------------------------------------------------
+
+        const targetRoot =
+            replyTarget.parent_comment_id ||
+            replyTarget.id;
+
+        if (targetRoot !== rootCommentId) {
+
+            const error = new Error(
+                "Invalid reply target."
+            );
+
+            error.statusCode = 400;
+
+            throw error;
+        }
+    }
+
+    //--------------------------------------------------
+    // Insert Reply
+    //--------------------------------------------------
+
+    const [result] = await db.query(
+        `
+        INSERT INTO inp_survey_comment
+        (
+            survey_id,
+            member_id,
+            comment,
+            parent_comment_id,
+            reply_to_comment_id,
+            status
+        )
+        VALUES
+        (?, ?, ?, ?, ?, 1)
+        `,
+        [
+            survey_id,
+            member_id,
+            comment,
+            rootCommentId,
+            reply_to_comment_id
+        ]
+    );
+
+    //--------------------------------------------------
+    // Fetch Created Reply
+    //--------------------------------------------------
+
+    const [[newComment]] = await db.query(
+        `
+        SELECT
+
+            c.id AS comment_id,
+            c.survey_id,
+            c.member_id,
+            c.parent_comment_id,
+            c.reply_to_comment_id,
+
+            CONCAT_WS(
+                ' ',
+                u.first_name,
+                NULLIF(u.middle_name, ''),
+                u.last_name
+            ) AS member_name,
+
+            up.profile_photo,
+            up.job_title,
+
+            c.comment,
+            c.created_at,
+
+            0 AS like_count,
+
+            FALSE AS liked_by_me
+
+        FROM inp_survey_comment c
+
+        INNER JOIN user u
+            ON u.member_id = c.member_id
+
+        LEFT JOIN user_profiles up
+            ON up.u_id = u.id
+
+        WHERE c.id = ?
+        LIMIT 1
+        `,
+        [
+            result.insertId
+        ]
+    );
+
+    //--------------------------------------------------
+    // Return
+    //--------------------------------------------------
+
+    return {
+        ...newComment,
+
+        like_count: 0,
+        liked_by_me: false
+    };
+};
+
+
 module.exports = {
     createSurveyDetails,
     updateSurveyDetails,
@@ -3744,5 +4545,11 @@ module.exports = {
     toggleCommentLike,
     getSurveyComments,
     getCommentReplies,
-    getSurveyLikes
+    getSurveyLikes,
+
+    getMySurveyEngagement,
+    getMySurveyComments,
+    getMySurveyCommentReplies,
+    toggleMySurveyCommentLike,
+    addMySurveyCommentReply
 };

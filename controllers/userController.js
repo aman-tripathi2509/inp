@@ -13,6 +13,8 @@ const { getName } = require("country-list");
 const User = require("../models/userModel");
 const LoginActivity = require("../models/loginActivityModel");
 const LoginSession = require("../models/loginSessionModel");
+const PasswordResetModel = require("../models/PasswordResetModel");
+
 
 const fs = require("fs");
 const path = require("path");
@@ -186,7 +188,7 @@ const createLoginSession = async (
         const activityInfo = getLoginActivityInfo(req);
 
         const expires_at = new Date(
-            Date.now() + 12 * 60 * 60 * 1000
+            Date.now() + 30 * 24 * 60 * 60 * 1000
         );
 
         const result = await LoginSession.createLoginSession({
@@ -485,7 +487,7 @@ if (twoFactorStatus.is_enabled) {
             },
             process.env.JWT_SECRET,
             {
-                expiresIn: "12h"
+                expiresIn: "30d"
             }
         );
 
@@ -758,7 +760,7 @@ const verifyTwoFactorLogin = async (req, res) => {
             },
             process.env.JWT_SECRET,
             {
-                expiresIn: "12h"
+                expiresIn: "30d"
             }
         );
 
@@ -1398,6 +1400,30 @@ const changePassword = async (req, res) => {
         }
 
         // -----------------------------------
+        // GET USER EMAIL
+        // -----------------------------------
+
+        const userData = await User.getUserEmailByMemberId(member_id);
+
+        if (!userData) {
+            return res.status(404).json({
+                message: "User not found"
+            });
+        }
+
+        let userEmail;
+
+        try {
+            userEmail = aesDecrypt(userData.personal_email);
+        } catch (error) {
+            console.error("Email decryption error:", error);
+
+            return res.status(500).json({
+                message: "Unable to retrieve user email"
+            });
+        }
+
+        // -----------------------------------
         // REQUEST BODY
         // -----------------------------------
 
@@ -1512,6 +1538,64 @@ const changePassword = async (req, res) => {
         // SUCCESS
         // -----------------------------------
 
+
+        const emailResult = await sendEmail({
+            to: userEmail,
+            subject: "Your Password Has Been Changed",
+            content: `
+                <div style="
+                    font-family: Arial, sans-serif;
+                    line-height: 1.6;
+                    color: #333;
+                    max-width: 600px;
+                    margin: auto;
+                ">
+
+                    <h2 style="color: #c92332;">
+                        Password Changed Successfully
+                    </h2>
+
+                    <p>
+                        Hello ${userData.first_name || "User"},
+                    </p>
+
+                    <p>
+                        Your <strong>Industry & People</strong> account password
+                        has been changed successfully.
+                    </p>
+
+                    <p>
+                        If you made this change, no further action is required.
+                    </p>
+
+                    <p>
+                        <strong>
+                            If you did not change your password, please contact
+                            our support team immediately.
+                        </strong>
+                    </p>
+
+                    <p>
+                        For your security, please contact us immediately if you
+                        believe someone else has accessed your account.
+                    </p>
+
+                    <p>
+                        Regards,<br>
+                        <strong>Industry & People Team</strong>
+                    </p>
+
+                </div>
+            `
+        });
+
+        if (!emailResult || !emailResult.status) {
+            console.error(
+                "Password change notification email failed:",
+                emailResult
+            );
+        }
+
         return res.status(200).json({
             success: true,
             message: "Password changed successfully"
@@ -1531,6 +1615,292 @@ const changePassword = async (req, res) => {
     }
 };
 
+
+const forgotPassword = async (req, res) => {
+    try {
+
+        const { email } = req.body;
+
+        // -----------------------------------
+        // VALIDATION
+        // -----------------------------------
+
+        if (!email || email.trim() === "") {
+            return res.status(400).json({
+                success: false,
+                message: "Email is required"
+            });
+        }
+
+        const userEmail = email.trim();
+
+        // -----------------------------------
+        // FIND USER
+        // -----------------------------------
+
+        const user = await User.getUserByEmail(userEmail);
+
+        if (!user || user.length === 0) {
+            return res.status(200).json({
+                success: true,
+                message:
+                    "If an account exists with this email, a password reset link has been sent."
+            });
+        }
+
+        const userData = user[0];
+
+        // -----------------------------------
+        // GENERATE RESET TOKEN
+        // -----------------------------------
+
+        const rawToken = crypto
+            .randomBytes(32)
+            .toString("hex");
+
+        // -----------------------------------
+        // HASH TOKEN
+        // -----------------------------------
+
+        const tokenHash = crypto
+            .createHash("sha256")
+            .update(rawToken)
+            .digest("hex");
+
+        // -----------------------------------
+        // TOKEN EXPIRY - 30 MINUTES
+        // -----------------------------------
+
+        const expiresAt = new Date(
+            Date.now() + 30 * 60 * 1000
+        );
+
+        // -----------------------------------
+        // SAVE TOKEN
+        // -----------------------------------
+
+        await PasswordResetModel.createPasswordResetToken(
+            userData.member_id,
+            userEmail,
+            tokenHash,
+            expiresAt
+        );
+
+        // -----------------------------------
+        // RESET PASSWORD URL
+        // -----------------------------------
+
+        const resetUrl =
+            `${process.env.FRONTEND_URL}/reset-password?token=${rawToken}`;
+
+        // -----------------------------------
+        // SEND EMAIL
+        // -----------------------------------
+
+        const emailResult = await sendEmail({
+            to: userEmail,
+            subject: "Reset Your Password",
+            content: `
+                <div style="
+                    font-family: Arial, sans-serif;
+                    line-height: 1.6;
+                    color: #333;
+                    max-width: 600px;
+                    margin: auto;
+                ">
+
+                    <h2 style="color: #c92332;">
+                        Reset Your Password
+                    </h2>
+
+                    <p>
+                        Hello ${userData.first_name || "User"},
+                    </p>
+
+                    <p>
+                        We received a request to reset the password
+                        associated with your Industry & People account.
+                    </p>
+
+                    <p>
+                        Click the button below to create a new password.
+                    </p>
+
+                    <div style="margin: 25px 0;">
+                        <a
+                            href="${resetUrl}"
+                            style="
+                                background-color: #c92332;
+                                color: #ffffff;
+                                padding: 12px 24px;
+                                text-decoration: none;
+                                border-radius: 5px;
+                                display: inline-block;
+                            "
+                        >
+                            Reset Password
+                        </a>
+                    </div>
+
+                    <p>
+                        This password reset link will expire in
+                        <strong>30 minutes</strong>.
+                    </p>
+
+                    <p>
+                        If you did not request a password reset,
+                        you can safely ignore this email.
+                    </p>
+
+                    <p>
+                        Regards,<br>
+                        <strong>Industry & People Team</strong>
+                    </p>
+
+                </div>
+            `
+        });
+
+        // -----------------------------------
+        // EMAIL FAILED
+        // -----------------------------------
+
+        if (!emailResult || !emailResult.status) {
+
+            console.error(
+                "Password reset email failed:",
+                emailResult
+            );
+
+            return res.status(500).json({
+                success: false,
+                message: "Unable to send password reset email"
+            });
+        }
+
+        // -----------------------------------
+        // SUCCESS
+        // -----------------------------------
+
+        return res.status(200).json({
+            success: true,
+            message:
+                "If an account exists with this email, a password reset link has been sent."
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Error in forgot password:",
+            error
+        );
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+};
+
+const resetPassword = async (req, res) => {
+    try {
+
+        const {
+            token,
+            new_password,
+            confirm_password
+        } = req.body;
+
+        // -----------------------------------
+        // VALIDATION
+        // -----------------------------------
+
+        if (!token || !new_password || !confirm_password) {
+            return res.status(400).json({
+                success: false,
+                message: "Token, new password and confirm password are required"
+            });
+        }
+
+        if (new_password !== confirm_password) {
+            return res.status(400).json({
+                success: false,
+                message: "New password and confirm password do not match"
+            });
+        }
+
+        // -----------------------------------
+        // HASH TOKEN
+        // -----------------------------------
+
+        const tokenHash = crypto
+            .createHash("sha256")
+            .update(token)
+            .digest("hex");
+
+        // -----------------------------------
+        // VALIDATE TOKEN
+        // -----------------------------------
+
+        const tokenData =
+            await PasswordResetModel.getValidPasswordResetToken(
+                tokenHash
+            );
+
+        if (!tokenData) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid or expired password reset link"
+            });
+        }
+
+        // -----------------------------------
+        // UPDATE PASSWORD
+        // -----------------------------------
+
+        const result =
+            await User.setInitialPassword(
+                tokenData.member_id,
+                new_password
+            );
+
+        if (!result || result.affectedRows === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Unable to reset password"
+            });
+        }
+
+        // -----------------------------------
+        // MARK TOKEN AS USED
+        // -----------------------------------
+
+        await PasswordResetModel.markPasswordResetTokenUsed(
+            tokenData.id
+        );
+
+        // -----------------------------------
+        // SUCCESS
+        // -----------------------------------
+
+        return res.status(200).json({
+            success: true,
+            message: "Password reset successfully. You can now login."
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Error resetting password:",
+            error
+        );
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+};
 
 /*--------------------------------------------------------------
     Function to fetch highest education answers 
@@ -2000,7 +2370,10 @@ const signupRequest = async (req, res) => {
             linkedin
         );
 
-        // Send email to admin
+        // -----------------------------------
+        // SEND EMAIL TO ADMIN
+        // -----------------------------------
+
         try {
             await sendEmail({
                 to: process.env.ADMIN_EMAIL,
@@ -2008,7 +2381,9 @@ const signupRequest = async (req, res) => {
                 content: `
                     <h2>New Membership Request Received</h2>
 
-                    <table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;">
+                    <table border="1" cellpadding="8" cellspacing="0"
+                        style="border-collapse:collapse;">
+
                         <tr>
                             <td><strong>Name</strong></td>
                             <td>${full_name}</td>
@@ -2027,17 +2402,82 @@ const signupRequest = async (req, res) => {
                                 </a>
                             </td>
                         </tr>
+
                     </table>
 
                     <br>
 
                     <p>
-                        A new membership request has been submitted and is waiting for review.
+                        A new membership request has been submitted
+                        and is waiting for review.
                     </p>
                 `
             });
         } catch (emailError) {
-            console.error("Email Error:", emailError);
+            console.error("Admin Email Error:", emailError);
+        }
+
+
+        // -----------------------------------
+        // SEND CONFIRMATION EMAIL TO USER
+        // -----------------------------------
+
+        try {
+            await sendEmail({
+                to: email,
+                subject: "Membership Request Submitted Successfully",
+                content: `
+                    <div style="
+                        font-family: Arial, sans-serif;
+                        line-height: 1.6;
+                        color: #333;
+                        max-width: 600px;
+                        margin: auto;
+                    ">
+
+                        <h2 style="color: #c92332;">
+                            Membership Request Submitted
+                        </h2>
+
+                        <p>
+                            Hello ${full_name},
+                        </p>
+
+                        <p>
+                            Thank you for your interest in
+                            <strong>Industry & People</strong>.
+                        </p>
+
+                        <p>
+                            Your membership request has been
+                            <strong>successfully submitted</strong>.
+                        </p>
+
+                        <p>
+                            Our team will review your request and
+                            notify you once a decision has been made.
+                        </p>
+
+                        <p>
+                            Please note that submitting a membership
+                            request does not guarantee approval.
+                        </p>
+
+                        <p>
+                            You do not need to take any further action
+                            at this time.
+                        </p>
+
+                        <p>
+                            Regards,<br>
+                            <strong>Industry & People Team</strong>
+                        </p>
+
+                    </div>
+                `
+            });
+        } catch (emailError) {
+            console.error("User Confirmation Email Error:", emailError);
         }
 
         return res.status(200).json({
@@ -2076,7 +2516,11 @@ const signup = async (req, res) => {
             other_country,
 
             referral_code
-            } = req.body;
+        } = req.body;
+
+        // -----------------------------------
+        // BASIC VALIDATION
+        // -----------------------------------
 
         if (!name || !email || !password) {
             return res.status(400).json({
@@ -2108,19 +2552,39 @@ const signup = async (req, res) => {
             });
         }
 
+        // -----------------------------------
+        // REFERRAL VALIDATION
+        // -----------------------------------
+
         if (!referral_code) {
-            return res.status(403).json({ message: "A valid referral is required to sign up directly" });
+            return res.status(403).json({
+                message: "A valid referral is required to sign up directly"
+            });
         }
 
         const referrer = await User.validateReferral(referral_code);
+
         if (!referrer || referrer.length === 0) {
-            return res.status(400).json({ message: "Invalid referral code" });
+            return res.status(400).json({
+                message: "Invalid referral code"
+            });
         }
 
+        // -----------------------------------
+        // CHECK EXISTING USER
+        // -----------------------------------
+
         const existingUser = await User.getUserByEmail(email);
+
         if (existingUser && existingUser.length > 0) {
-            return res.status(400).json({ message: "User already exists" });
+            return res.status(400).json({
+                message: "User already exists"
+            });
         }
+
+        // -----------------------------------
+        // CREATE USER
+        // -----------------------------------
 
         const newUser = await User.createUser(
             name,
@@ -2142,13 +2606,119 @@ const signup = async (req, res) => {
             referrer[0].member_id
         );
 
-        const token = jwt.sign({ userId: newUser.insertId }, process.env.JWT_SECRET, { expiresIn: "1h" });
+        // -----------------------------------
+        // SEND ACCOUNT CREATED EMAIL
+        // -----------------------------------
 
-        res.status(201).json({ message: "User registered successfully", token });
+        try {
+
+            const emailResult = await sendEmail({
+                to: email,
+                subject: "Your Industry & People Account Has Been Created",
+                content: `
+                    <div style="
+                        font-family: Arial, sans-serif;
+                        line-height: 1.6;
+                        color: #333;
+                        max-width: 600px;
+                        margin: auto;
+                    ">
+
+                        <h2 style="color: #c92332;">
+                            Welcome to Industry & People
+                        </h2>
+
+                        <p>
+                            Hello ${name},
+                        </p>
+
+                        <p>
+                            Your <strong>Industry & People</strong> account
+                            has been successfully created.
+                        </p>
+
+                        <p>
+                            You can now log in using the email address
+                            associated with your account.
+                        </p>
+
+                        <p>
+                            Your account has been created through a valid
+                            referral and is now ready to use.
+                        </p>
+
+                        <p>
+                            <strong>
+                                For your security, please do not share
+                                your password with anyone.
+                            </strong>
+                        </p>
+
+                        <p>
+                            If you did not create this account or believe
+                            someone has used your information without your
+                            permission, please contact our support team
+                            immediately.
+                        </p>
+
+                        <p>
+                            Regards,<br>
+                            <strong>Industry & People Team</strong>
+                        </p>
+
+                    </div>
+                `
+            });
+
+            // Check email service response
+            if (!emailResult || !emailResult.status) {
+                console.error(
+                    "Account Creation Email Failed:",
+                    emailResult
+                );
+            }
+
+        } catch (emailError) {
+
+            console.error(
+                "Account Creation Email Error:",
+                emailError
+            );
+        }
+
+        // -----------------------------------
+        // GENERATE JWT
+        // -----------------------------------
+
+        const token = jwt.sign(
+            {
+                userId: newUser.insertId
+            },
+            process.env.JWT_SECRET,
+            {
+                expiresIn: "30d"
+            }
+        );
+
+        // -----------------------------------
+        // SUCCESS RESPONSE
+        // -----------------------------------
+
+        return res.status(201).json({
+            message: "User registered successfully",
+            token
+        });
 
     } catch (err) {
-        console.log(err);
-        res.status(500).json({ message: "Database error" });
+
+        console.error(
+            "Signup Error:",
+            err
+        );
+
+        return res.status(500).json({
+            message: "Database error"
+        });
     }
 };
 
@@ -2883,6 +3453,82 @@ const logoutAllDevices = async (req, res) => {
 };
 
 /*--------------------------------------------------------------
+    Get Last 5 Login Activities
+--------------------------------------------------------------*/
+const getLoginActivity = async (req, res) => {
+    try {
+
+        const u_id = req.user?.userId;
+
+        if (!u_id) {
+            return res.status(401).json({
+                success: false,
+                message: "User information not found in token"
+            });
+        }
+
+        const activities =
+            await LoginActivity.getLastFiveLoginActivities(u_id);
+
+        // Format date and time in IST
+        const formatDateTime = (date) => {
+            if (!date) return null;
+
+            return new Date(date).toLocaleString("en-IN", {
+                timeZone: "Asia/Kolkata",
+                day: "2-digit",
+                month: "long",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: true
+            });
+        };
+
+        const formattedActivities = activities.map(activity => ({
+            id: activity.id,
+            city: activity.city,
+            country: activity.country,
+            device: activity.device,
+            browser: activity.browser,
+            operating_system: activity.operating_system,
+            ip_address: activity.ip_address,
+            login_type: activity.login_type === 1
+                ? "Password Login"
+                : activity.login_type === 2
+                    ? "Two-Factor Authentication Login"
+                    : "Unknown",
+
+            login_status: activity.login_status === 1
+                ? "Success"
+                : activity.login_status === 0
+                    ? "Failed"
+                    : "Unknown",
+            login_at: formatDateTime(activity.login_at)
+        }));
+
+        return res.status(200).json({
+            success: true,
+            message: "Login activity fetched successfully",
+            data: formattedActivities
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Error fetching login activity:",
+            error
+        );
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+};
+
+
+/*--------------------------------------------------------------
     Export the function separately 
 --------------------------------------------------------------*/
 module.exports = { 
@@ -2896,6 +3542,8 @@ module.exports = {
     uploadProfilePhoto,
     update_UserData,
     changePassword,
+    forgotPassword,
+    resetPassword,
 
     HighestEducation,
     getStates,
@@ -2918,5 +3566,6 @@ module.exports = {
     verifyTwoFactor,
     getActiveDevices,
     logoutDevice,
-    logoutAllDevices
+    logoutAllDevices,
+    getLoginActivity,
 };

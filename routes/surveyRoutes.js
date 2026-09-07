@@ -36,7 +36,11 @@ const {
     getSurveyComments,
     getSurveyLikes,
     testSurveyInteraction,
-    getCommentReplies
+    getCommentReplies,
+    getMySurveyEngagement,
+    getMySurveyCommentReplies,
+    toggleMySurveyCommentLike,
+    addMySurveyCommentReply
 } = require("../controllers/surveyController");
 
 const {
@@ -289,6 +293,30 @@ router.post(
     "/test-survey-interaction",
     authMiddleware,
     testSurveyInteraction
+);
+
+router.get(
+    "/my-surveys/:survey_id/engagement",
+    authMiddleware,
+    getMySurveyEngagement
+);
+
+router.get(
+    "/my-surveys/:survey_id/engagement/comments/:comment_id/replies",
+    authMiddleware,
+    getMySurveyCommentReplies
+);
+
+router.post(
+    "/my-surveys/:survey_id/engagement/comments/:comment_id/like",
+    authMiddleware,
+    toggleMySurveyCommentLike
+);
+
+router.post(
+    "/my-surveys/:survey_id/engagement/comments/:comment_id/reply",
+    authMiddleware,
+    addMySurveyCommentReply
 );
 
 module.exports = router;

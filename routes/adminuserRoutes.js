@@ -13,9 +13,10 @@ const {
 } = require("../controllers/AdminuserController");
 
 const { authMiddleware } = require("../middlewares/authMiddleware");
+const { adminLoginLimiter } = require("../middlewares/loginRateLimiter");
 
 // Admin Login Route
-router.post("/Adminlogin", upload.none(), Adminlogin);
+router.post("/Adminlogin", upload.none(), adminLoginLimiter, Adminlogin);
 
 // Fetch Users
 router.post(

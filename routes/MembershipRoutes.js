@@ -1,13 +1,14 @@
 const express = require("express");
 const router = express.Router();
-const multer = require("multer");
 
+const multer = require("multer");
 const upload = multer();
 
 const {
     getSignupRequests,
     approve_membership,
-    reject_request
+    reject_request,
+    setPassword
 } = require("../controllers/MembershipController");
 
 const { authMiddleware } = require("../middlewares/authMiddleware");
@@ -34,6 +35,12 @@ router.post(
     authMiddleware,
     upload.none(),
     reject_request
+);
+
+// Set Password
+router.post(
+    "/set-password",
+    setPassword
 );
 
 module.exports = router;

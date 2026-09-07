@@ -8,6 +8,7 @@ const MembershipRoutes=require("../routes/MembershipRoutes");
 const contactRoutes=require("../routes/contactRoutes");
 const globalRoutes = require('../routes/globalRoutes');
 const walletRoutes = require('../routes/walletRoutes');
+const supportRoutes = require("../routes/supportRoutes");
 module.exports = function (app) {
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
@@ -21,5 +22,5 @@ module.exports = function (app) {
     app.use('/api/contact_us',contactRoutes);//api to for contact-us.
     app.use("/api/global", globalRoutes);
     app.use("/api/wallet", walletRoutes);
+    app.use("/api/support", supportRoutes);
 };
- 

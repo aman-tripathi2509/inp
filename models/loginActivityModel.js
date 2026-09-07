@@ -66,6 +66,44 @@ const createLoginActivity = async ({
     }
 };
 
+
+/*--------------------------------------------------------------
+    Get Last 5 Login Activities
+--------------------------------------------------------------*/
+const getLastFiveLoginActivities = async (u_id) => {
+    try {
+
+        const [rows] = await db.query(
+            `SELECT
+                id,
+                u_id,
+                member_id,
+                ip_address,
+                city,
+                country,
+                device,
+                browser,
+                operating_system,
+                login_type,
+                login_status,
+                login_at
+             FROM inp_login_activity
+             WHERE u_id = ?
+               AND login_status = 1
+             ORDER BY login_at DESC
+             LIMIT 5`,
+            [u_id]
+        );
+
+        return rows;
+
+    } catch (error) {
+        throw error;
+    }
+};
+
+
 module.exports = {
-    createLoginActivity
+    createLoginActivity,
+    getLastFiveLoginActivities
 };

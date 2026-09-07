@@ -6,6 +6,7 @@ const db = require("../config/db");
 const createLoginSession = async ({
     u_id,
     member_id,
+    admin_user_id,
     session_token,
     ip_address,
     user_agent,
@@ -21,6 +22,7 @@ const createLoginSession = async ({
             (
                 u_id,
                 member_id,
+                admin_user_id,
                 session_token,
                 ip_address,
                 user_agent,
@@ -32,10 +34,11 @@ const createLoginSession = async ({
                 expires_at,
                 is_active
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?, 1)`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?, 1)`,
             [
                 u_id,
                 member_id,
+                admin_user_id,
                 session_token,
                 ip_address,
                 user_agent,
@@ -133,6 +136,67 @@ const getSessionByToken = async (u_id, session_token) => {
     }
 };
 
+/*--------------------------------------------------------------
+    Get Active Login Session By Token
+--------------------------------------------------------------*/
+const getActiveLoginSession = async (session_token) => {
+    try {
+
+        const [rows] = await db.query(
+            `SELECT
+                id,
+                u_id,
+                member_id,
+                admin_user_id,
+                session_token,
+                expires_at,
+                last_activity_at,
+                is_active
+             FROM inp_user_sessions
+             WHERE session_token = ?
+               AND is_active = 1
+               AND expires_at > CURRENT_TIMESTAMP
+             LIMIT 1`,
+            [session_token]
+        );
+
+        return rows[0] || null;
+
+    } catch (error) {
+        throw error;
+    }
+};
+
+
+/*--------------------------------------------------------------
+    Update Session Activity / Sliding Expiry
+--------------------------------------------------------------*/
+const updateLoginSessionExpiry = async (
+    session_token,
+    expires_at
+) => {
+    try {
+
+        const [result] = await db.query(
+            `UPDATE inp_user_sessions
+             SET
+                last_activity_at = CURRENT_TIMESTAMP,
+                expires_at = ?
+             WHERE session_token = ?
+               AND is_active = 1`,
+            [
+                expires_at,
+                session_token
+            ]
+        );
+
+        return result;
+
+    } catch (error) {
+        throw error;
+    }
+};
+
 
 /*--------------------------------------------------------------
     Logout / Deactivate Single Session
@@ -187,6 +251,8 @@ module.exports = {
     updateSessionToken,
     getActiveSessions,
     getSessionByToken,
+    getActiveLoginSession,
+    updateLoginSessionExpiry,
     deactivateSession,
     deactivateAllOtherSessions
 };

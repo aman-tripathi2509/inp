@@ -1926,6 +1926,409 @@ const getSurveyLikes = async (req, res) => {
 };
 
 
+const getMySurveyEngagement = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+
+        const survey_id =
+            Number(req.params.survey_id);
+
+        if (
+            !Number.isInteger(survey_id) ||
+            survey_id <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid survey_id is required."
+            });
+        }
+
+        const result =
+            await Survey.getMySurveyEngagement(
+                survey_id,
+                member_id
+            );
+
+        return res.status(200).json({
+            success: true,
+            message:
+                "Survey engagement fetched successfully",
+
+            data: result
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Get My Survey Engagement Error:",
+            error
+        );
+
+        return res.status(
+            error.statusCode || 500
+        ).json({
+            success: false,
+            message:
+                error.message ||
+                "Internal Server Error"
+        });
+    }
+};
+
+const getMySurveyCommentReplies = async (req, res) => {
+
+    try {
+
+        const member_id =
+            req.user.member_id;
+
+        const survey_id =
+            Number(req.params.survey_id);
+
+        const comment_id =
+            Number(req.params.comment_id);
+
+        //--------------------------------------------------
+        // Validate Survey ID
+        //--------------------------------------------------
+
+        if (
+            !Number.isInteger(survey_id) ||
+            survey_id <= 0
+        ) {
+
+            return res.status(400).json({
+                success: false,
+                message:
+                    "Valid survey_id is required."
+            });
+        }
+
+        //--------------------------------------------------
+        // Validate Comment ID
+        //--------------------------------------------------
+
+        if (
+            !Number.isInteger(comment_id) ||
+            comment_id <= 0
+        ) {
+
+            return res.status(400).json({
+                success: false,
+                message:
+                    "Valid comment_id is required."
+            });
+        }
+
+        //--------------------------------------------------
+        // Fetch Replies
+        //--------------------------------------------------
+
+        const result =
+            await Survey.getMySurveyCommentReplies(
+                survey_id,
+                comment_id,
+                member_id
+            );
+
+        //--------------------------------------------------
+        // Response
+        //--------------------------------------------------
+
+        return res.status(200).json({
+
+            success: true,
+
+            message:
+                "Survey comment replies fetched successfully.",
+
+            count: result.length,
+
+            data: result
+
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Get My Survey Comment Replies Error:",
+            error
+        );
+
+        return res.status(
+            error.statusCode || 500
+        ).json({
+
+            success: false,
+
+            message:
+                error.message ||
+                "Internal Server Error"
+
+        });
+    }
+};
+
+
+const toggleMySurveyCommentLike = async (req, res) => {
+
+    try {
+
+        const member_id =
+            req.user.member_id;
+
+        const survey_id =
+            Number(req.params.survey_id);
+
+        const comment_id =
+            Number(req.params.comment_id);
+
+        //--------------------------------------------------
+        // Validate Survey ID
+        //--------------------------------------------------
+
+        if (
+            !Number.isInteger(survey_id) ||
+            survey_id <= 0
+        ) {
+
+            return res.status(400).json({
+                success: false,
+                message:
+                    "Valid survey_id is required."
+            });
+        }
+
+        //--------------------------------------------------
+        // Validate Comment ID
+        //--------------------------------------------------
+
+        if (
+            !Number.isInteger(comment_id) ||
+            comment_id <= 0
+        ) {
+
+            return res.status(400).json({
+                success: false,
+                message:
+                    "Valid comment_id is required."
+            });
+        }
+
+        //--------------------------------------------------
+        // Toggle Like
+        //--------------------------------------------------
+
+        const result =
+            await Survey.toggleMySurveyCommentLike(
+                survey_id,
+                comment_id,
+                member_id
+            );
+
+        //--------------------------------------------------
+        // Socket.IO
+        //--------------------------------------------------
+
+        const io = getIO();
+
+        io.to(`survey_${survey_id}`).emit(
+            "comment_like_updated",
+            result
+        );
+
+        //--------------------------------------------------
+        // Response
+        //--------------------------------------------------
+
+        return res.status(200).json({
+
+            success: true,
+
+            message: result.liked
+                ? "Comment liked successfully."
+                : "Comment unliked successfully.",
+
+            data: result
+
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Toggle My Survey Comment Like Error:",
+            error
+        );
+
+        return res.status(
+            error.statusCode || 500
+        ).json({
+
+            success: false,
+
+            message:
+                error.message ||
+                "Internal Server Error"
+
+        });
+    }
+};
+
+const addMySurveyCommentReply = async (req, res) => {
+
+    try {
+
+        const member_id =
+            req.user.member_id;
+
+        const survey_id =
+            Number(req.params.survey_id);
+
+        const comment_id =
+            Number(req.params.comment_id);
+
+        const {
+            comment,
+            reply_to_comment_id = null
+        } = req.body;
+
+        //--------------------------------------------------
+        // Validate Survey ID
+        //--------------------------------------------------
+
+        if (
+            !Number.isInteger(survey_id) ||
+            survey_id <= 0
+        ) {
+
+            return res.status(400).json({
+                success: false,
+                message:
+                    "Valid survey_id is required."
+            });
+        }
+
+        //--------------------------------------------------
+        // Validate Comment ID
+        //--------------------------------------------------
+
+        if (
+            !Number.isInteger(comment_id) ||
+            comment_id <= 0
+        ) {
+
+            return res.status(400).json({
+                success: false,
+                message:
+                    "Valid comment_id is required."
+            });
+        }
+
+        //--------------------------------------------------
+        // Validate Comment
+        //--------------------------------------------------
+
+        if (
+            typeof comment !== "string" ||
+            !comment.trim()
+        ) {
+
+            return res.status(400).json({
+                success: false,
+                message:
+                    "Comment is required."
+            });
+        }
+
+        //--------------------------------------------------
+        // Validate Reply Target
+        //--------------------------------------------------
+
+        let parsedReplyToCommentId = null;
+
+        if (reply_to_comment_id !== null) {
+
+            parsedReplyToCommentId =
+                Number(reply_to_comment_id);
+
+            if (
+                !Number.isInteger(
+                    parsedReplyToCommentId
+                ) ||
+                parsedReplyToCommentId <= 0
+            ) {
+
+                return res.status(400).json({
+                    success: false,
+                    message:
+                        "Invalid reply_to_comment_id."
+                });
+            }
+        }
+
+        //--------------------------------------------------
+        // Add Reply
+        //--------------------------------------------------
+
+        const result =
+            await Survey.addMySurveyCommentReply(
+                survey_id,
+                comment_id,
+                member_id,
+                comment.trim(),
+                parsedReplyToCommentId
+            );
+
+        //--------------------------------------------------
+        // Socket.IO
+        //--------------------------------------------------
+
+        const io = getIO();
+
+        io.to(`survey_${survey_id}`).emit(
+            "comment_added",
+            result
+        );
+
+        //--------------------------------------------------
+        // Response
+        //--------------------------------------------------
+
+        return res.status(201).json({
+
+            success: true,
+
+            message:
+                "Reply added successfully.",
+
+            data: result
+
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Add My Survey Comment Reply Error:",
+            error
+        );
+
+        return res.status(
+            error.statusCode || 500
+        ).json({
+
+            success: false,
+
+            message:
+                error.message ||
+                "Internal Server Error"
+
+        });
+    }
+};
+
+
 module.exports = {
     saveSurveyDetails,
     updateSurveyDetails,
@@ -1961,5 +2364,11 @@ module.exports = {
     getSurveyComments,
     getCommentReplies,
     testSurveyInteraction,
-    getSurveyLikes
+    getSurveyLikes,
+
+    getMySurveyEngagement,
+    getMySurveyCommentReplies,
+    toggleMySurveyCommentLike,
+    addMySurveyCommentReply
+    
     };

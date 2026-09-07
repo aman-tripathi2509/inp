@@ -7,6 +7,8 @@ const { signup,
         uploadProfilePhoto,
         update_UserData,
         changePassword,
+        forgotPassword,
+        resetPassword,
         
         HighestEducation,
         getStates,
@@ -32,10 +34,12 @@ const { signup,
         verifyTwoFactor,
         getActiveDevices,
         logoutDevice,
-        logoutAllDevices} = require("../controllers/userController");  // Import both functions
+        logoutAllDevices,
+        getLoginActivity} = require("../controllers/userController");  // Import both functions
 
 const { authMiddleware } = require("../middlewares/authMiddleware");  // Import authMiddleware
 const profileUpload = require("../middlewares/profileUpload");
+const { userLoginLimiter } = require("../middlewares/loginRateLimiter");
 
 // Signup Route
 // router.post("/signup", signup);
@@ -43,7 +47,19 @@ router.post("/check-referral", checkReferral);     // frontend calls this first 
 router.post("/signup", signup);                    // referral path — creates account immediately
 router.post("/signup-request", signupRequest);     // no referral — goes to pending queue
 // Login Route
-router.post("/login", login);    // Use `/login` for authentication
+router.post("/login", userLoginLimiter, login);    // Use `/login` for authentication
+
+// Forgot Password
+router.post(
+    "/forgot-password",
+    forgotPassword
+);
+
+// RESET Password
+router.post(
+    "/reset-password",
+    resetPassword
+);
 
 router.post(
     "/2fa/login",
@@ -89,6 +105,12 @@ router.post(
     "/2fa/verify",
     authMiddleware,
     verifyTwoFactor
+);
+
+router.get(
+    "/login-activity",
+    authMiddleware,
+    getLoginActivity
 );
 
 router.get(

@@ -6,6 +6,7 @@ const path = require("path");
 const fs = require("fs");
 const { AdminINPUserListing } = require('../models/adminuserModel');
 const { aesEncrypt} = require("../utils/encryption")
+const LoginSession = require("../models/loginSessionModel");
 
 dotenv.config();
 
@@ -51,8 +52,30 @@ const Adminlogin = async (req, res) => {
         const token = jwt.sign(
             { adminId: admin[0].user_id },
             process.env.JWT_SECRET,
-            { expiresIn: "12h" }
+            { expiresIn: "30d" }
         );
+        
+        // Create login session
+        const expires_at = new Date(
+            Date.now() + 30 * 24 * 60 * 60 * 1000
+        );
+        
+        await LoginSession.createLoginSession({
+            u_id: null,
+            member_id: null,
+            admin_user_id: admin[0].user_id,
+            session_token: token,
+            ip_address:
+                req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+                req.socket?.remoteAddress ||
+                req.ip ||
+                null,
+            user_agent: req.headers["user-agent"] || null,
+            device: "Admin",
+            browser: null,
+            operating_system: null,
+            expires_at
+        });
 
         // Prepare response without password
         const adminData = {

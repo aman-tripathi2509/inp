@@ -222,6 +222,131 @@ const createUser = async (
     }
 };
 
+const createApprovedUser = async (
+    name,
+    email
+) => {
+
+    const connection = await db.getConnection();
+
+    try {
+
+        await connection.beginTransaction();
+
+        // -----------------------------------------
+        // Generate member ID and referral code
+        // -----------------------------------------
+        const newMemberId = await getNextMemberId();
+        const newReferralCode = await generateReferralCode();
+
+        // -----------------------------------------
+        // Split full name
+        // -----------------------------------------
+        const nameParts = name.trim().split(/\s+/);
+
+        let firstName = '';
+        let middleName = '';
+        let lastName = '';
+
+        if (nameParts.length === 1) {
+
+            firstName = nameParts[0];
+
+        } else if (nameParts.length === 2) {
+
+            firstName = nameParts[0];
+            lastName = nameParts[1];
+
+        } else {
+
+            firstName = nameParts[0];
+            middleName = nameParts[1];
+            lastName = nameParts.slice(2).join(' ');
+        }
+
+        // -----------------------------------------
+        // AES encrypt email and temporary password
+        // -----------------------------------------
+        const encryptedEmail = aesEncrypt(email);
+
+        // -----------------------------------------
+        // Insert user
+        // -----------------------------------------
+        const userSql = `
+            INSERT INTO user
+            (
+                member_id,
+                referral_code,
+                referred_by,
+                first_name,
+                middle_name,
+                last_name,
+                personal_email,
+                password,
+                password_setup_required
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)
+        `;
+
+        const [userResult] = await connection.query(
+            userSql,
+            [
+                newMemberId,
+                newReferralCode,
+                null,
+                firstName,
+                middleName,
+                lastName,
+                encryptedEmail,
+                1
+            ]
+        );
+
+        await connection.commit();
+
+        return {
+            insertId: userResult.insertId,
+            member_id: newMemberId,
+            referral_code: newReferralCode
+        };
+
+    } catch (error) {
+
+        await connection.rollback();
+
+        throw error;
+
+    } finally {
+
+        connection.release();
+    }
+};
+
+const setInitialPassword = async (member_id, new_password) => {
+    try {
+        const encryptedPassword = aesEncrypt(new_password);
+
+        const sql = `
+            UPDATE user
+            SET
+                password = ?,
+                password_setup_required = 0,
+                updated_on = CURRENT_TIMESTAMP
+            WHERE member_id = ?
+        `;
+
+        const [result] = await db.query(sql, [
+            encryptedPassword,
+            member_id
+        ]);
+
+        return result;
+
+    } catch (error) {
+        throw error;
+    }
+};
+
 /*--------------------------------------------------------------
     Function to get user by email
 --------------------------------------------------------------*/
@@ -231,6 +356,27 @@ const getUserByEmail = async (email) => {
         const encryptedEmail = aesEncrypt(email);
         const [rows] = await db.query(sql, [encryptedEmail]);
         return rows;
+    } catch (error) {
+        throw error;
+    }
+};
+
+const getUserEmailByMemberId = async (member_id) => {
+    try {
+        const sql = `
+            SELECT 
+                member_id,
+                first_name,
+                personal_email
+            FROM user
+            WHERE member_id = ?
+            LIMIT 1
+        `;
+
+        const [rows] = await db.query(sql, [member_id]);
+
+        return rows.length > 0 ? rows[0] : null;
+
     } catch (error) {
         throw error;
     }
@@ -762,7 +908,9 @@ async function updateUserData(member_id, data) {
                     data.industry || null,
                     data.department || null,
                     data.function || null,
-                    data.previous_employement || null,
+                    data.previous_employement
+                        ? JSON.stringify(data.previous_employement)
+                        : null,
                     data.facebook || null,
                     data.insta || null,
                     data.x || null,
@@ -813,7 +961,9 @@ async function updateUserData(member_id, data) {
                     data.industry || null,
                     data.department || null,
                     data.function || null,
-                    data.previous_employement || null,
+                    data.previous_employement
+                        ? JSON.stringify(data.previous_employement)
+                        : null,
                     data.facebook || null,
                     data.insta || null,
                     data.x || null,
@@ -1759,6 +1909,9 @@ const clearEmailLoginOTP = async (u_id) => {
 --------------------------------------------------------------*/
 module.exports = { 
     createUser,
+    createApprovedUser,
+    getUserEmailByMemberId,
+    setInitialPassword,
     getUserByEmail,
     loginUser,
 
