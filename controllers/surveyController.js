@@ -1,6 +1,107 @@
 const Survey = require("../models/surveyModel");
+const db = require("../config/db");
 
+const { getIO } = require("../socket");
 const fileUrl = (file) => `/uploads/surveys/${file.filename}`;
+const { aesDecrypt } = require("../utils/encryption");
+
+const fs = require("fs");
+const path = require("path");
+const sendEmail = require("../utils/emailService");
+const { addEmailToQueue } = require("../models/emailQueueModel");
+const { sendNewSurveyAvailableNotifications } = require("../services/pushNotificationService");
+const UAParser = require("ua-parser-js");
+
+const parseMultiSelect = (value) => {
+
+    if (value === undefined || value === null || value === "") {
+        return null;
+    }
+
+    let items;
+
+    if (Array.isArray(value)) {
+        items = value;
+    } else {
+
+        const raw = String(value).trim();
+
+        if (raw === "") {
+            return null;
+        }
+
+        if (raw.startsWith("[") && raw.endsWith("]")) {
+            try {
+                const parsed = JSON.parse(raw);
+                items = Array.isArray(parsed) ? parsed : [parsed];
+            } catch (error) {
+                // Not valid JSON despite the brackets - fall back to
+                // treating it as a comma-separated list.
+                items = raw.split(",");
+            }
+        } else {
+            items = raw.split(",");
+        }
+    }
+
+    const cleaned = items
+        .map(item => String(item).trim())
+        .filter(item => item !== "");
+
+    return cleaned.length > 0 ? cleaned.join(",") : null;
+};
+
+const getAgeRange = (value) => {
+
+    if (!value) {
+        return {
+            min_age: null,
+            max_age: null
+        };
+    }
+
+    let ageGroups = [];
+
+    try {
+        ageGroups = JSON.parse(value);
+    } catch {
+        ageGroups = Array.isArray(value) ? value : [value];
+    }
+
+    let minAge = Number.MAX_SAFE_INTEGER;
+    let maxAge = 0;
+
+    ageGroups.forEach(group => {
+
+        if (group === "60+") {
+
+            minAge = Math.min(minAge, 60);
+            maxAge = Math.max(maxAge, 100);
+
+        } else {
+
+            const [min, max] = group.split("-").map(Number);
+
+            minAge = Math.min(minAge, min);
+            maxAge = Math.max(maxAge, max);
+        }
+
+    });
+
+    return {
+        min_age: minAge,
+        max_age: maxAge
+    };
+};
+
+// Add near the top of the controller file (or in a shared utils file)
+const toNullableNumber = (value) => {
+    if (value === undefined || value === null || value === "") {
+        return null;
+    }
+    const num = Number(value);
+    return Number.isNaN(num) ? null : num;
+};
 
 const parseJsonField = (value, fallback) => {
     if (typeof value !== "string") {
@@ -149,6 +250,29 @@ const getSectorIndustryHierarchy = async (req, res) => {
     }
 };
 
+const getDeviceInfo = (req) => {
+    const parser = new UAParser(req.get("user-agent") || "");
+    const result = parser.getResult();
+
+    let deviceType = "Desktop";
+
+    if (result.device.type === "mobile") {
+        deviceType = "Mobile";
+    } else if (result.device.type === "tablet") {
+        deviceType = "Tablet";
+    }
+
+    return {
+        ip_address: req.ip || null,
+        device_type: deviceType,
+        browser: result.browser.name || "Unknown",
+        operating_system: result.os.name
+            ? `${result.os.name}${result.os.version ? ` ${result.os.version}` : ""}`
+            : "Unknown",
+        user_agent: req.get("user-agent") || null
+    };
+};
+
 // Controller function to get Company Size based on question_id
 const get_CompanySize = async (req, res) => {
     try {
@@ -174,6 +298,20 @@ const get_CompanyRevenue = async (req, res) => {
     catch (error) {
         console.error('Error fetching Compay Size:', error);
         res.status(500).json({ message: "Error fetching Compay Revenue" });
+    }
+}
+
+// Controller function to get Company Revenue based on question_id
+const get_CompanyType = async (req, res) => {
+    try {
+        const question_id = 9;//for industries questions
+        const allCompanyType = await Survey.getCompanyType(question_id);
+        // Return the fetched sectors instead of the error message
+        res.status(200).json({ message: "Compay Type fetched successfully", data: allCompanyType });
+    }
+    catch (error) {
+        console.error('Error fetching Compay Type:', error);
+        res.status(500).json({ message: "Error fetching Compay Type" });
     }
 }
 
@@ -209,8 +347,7 @@ const saveSurveyDetails = async (req, res) => {
             survey_image,
             start_date,
             end_date,
-            min_age,
-            max_age,
+            age_groups,
             gender,
             target_responses,
             reward_per_participant,
@@ -233,26 +370,26 @@ const saveSurveyDetails = async (req, res) => {
             });
         }
 
-        const result =
-            await Survey.createSurveyDetails(
-                member_id,
-                {
-                    survey_title,
-                    survey_description,
-                    survey_image: uploadedSurveyImage || survey_image,
-                    start_date,
-                    end_date,
-                    min_age,
-                    max_age,
-                    gender,
-                    target_responses,
-                    reward_per_participant,
-                    sector,
-                    industry,
-                    country,
-                    state
-                }
-            );
+        const ageRange = getAgeRange(age_groups);
+        const result = await Survey.createSurveyDetails(
+            member_id,
+            {
+                survey_title,
+                survey_description,
+                survey_image: uploadedSurveyImage || survey_image,
+                start_date,
+                end_date,
+                min_age: ageRange.min_age,
+                max_age: ageRange.max_age,
+                gender: parseMultiSelect(gender),
+                target_responses: toNullableNumber(target_responses),
+                reward_per_participant: toNullableNumber(reward_per_participant),
+                sector: parseMultiSelect(sector),
+                industry: parseMultiSelect(industry),
+                country: parseMultiSelect(country),
+                state: parseMultiSelect(state)
+            }
+        );
 
         return res.status(201).json({
             success: true,
@@ -420,20 +557,101 @@ const saveSurveyQuestions = async (req, res) => {
     }
 };
 
-const previewSurvey = async (req, res) => {
+
+const updateSurveyQuestions = async (req, res) => {
 
     try {
 
-        const { survey_id } =
-            req.params;
+        const { survey_id } = req.params;
 
-        const result =
-            await Survey.getSurveyPreview(
-                survey_id
+        const {
+            questions,
+            tags
+        } = req.body;
+
+        const parsedQuestions = parseJsonField(questions, null);
+        const parsedTags = parseJsonField(tags, []);
+
+        if (!survey_id) {
+            return res.status(400).json({
+                success: false,
+                message: "survey_id is required"
+            });
+        }
+
+        if (
+            !parsedQuestions ||
+            !Array.isArray(parsedQuestions)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "questions array required"
+            });
+        }
+
+        const allowedTypes = [
+            "single_select",
+            "multi_select",
+            "open_end",
+            "dropdown",
+            "rating",
+            "yes_no",
+            "nps"
+        ];
+
+        const normalizedQuestions =
+            normalizeSurveyQuestionImages(
+                parsedQuestions,
+                req.files
             );
 
-        return res.json({
+        for (const q of normalizedQuestions) {
+
+            if (
+                !q.question_text ||
+                !q.question_type
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: "question_text and question_type are required"
+                });
+            }
+
+            if (
+                !allowedTypes.includes(
+                    q.question_type
+                )
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Invalid question type: ${q.question_type}`
+                });
+            }
+
+            if (
+                q.question_type !== "open_end" &&
+                (
+                    !q.options ||
+                    q.options.length === 0
+                )
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: `${q.question_text} requires options`
+                });
+            }
+        }
+
+        const result =
+            await Survey.updateSurveyQuestions(
+                survey_id,
+                normalizedQuestions,
+                parsedTags
+            );
+
+        return res.status(200).json({
             success: true,
+            message: "Survey questions updated successfully",
             data: result
         });
 
@@ -444,6 +662,93 @@ const previewSurvey = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: error.message
+        });
+
+    }
+
+};
+
+
+const previewSurvey = async (req, res) => {
+
+    try {
+
+        const { survey_id } = req.params;
+
+        if (!survey_id) {
+            return res.status(400).json({
+                success: false,
+                message: "survey_id is required"
+            });
+        }
+
+        const result = await Survey.getSurveyPreview(survey_id);
+
+        // Build Base URL (Supports Local + Production)
+        const protocol =
+            req.headers["x-forwarded-proto"] || req.protocol;
+
+        const host =
+            req.headers["x-forwarded-host"] || req.get("host");
+
+        const baseUrl = `${protocol}://${host}`;
+
+        // ================= Survey Image =================
+
+        if (result.survey?.survey_image) {
+            result.survey.survey_image =
+                `${baseUrl}${result.survey.survey_image}`;
+        }
+
+        // ================= Question & Option Images =================
+
+        if (Array.isArray(result.questions)) {
+
+            result.questions = result.questions.map(question => {
+
+                if (question.question_image) {
+                    question.question_image =
+                        `${baseUrl}${question.question_image}`;
+                }
+
+                if (Array.isArray(question.options)) {
+
+                    question.options = question.options.map(option => {
+
+                        if (option.option_image) {
+                            option.option_image =
+                                `${baseUrl}${option.option_image}`;
+                        }
+
+                        return option;
+                    });
+                }
+
+                return question;
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Survey preview fetched successfully",
+            data: result
+        });
+
+    } catch (error) {
+
+        console.error("Preview Survey Error:", error);
+
+        if (error.message === "Survey not found") {
+            return res.status(404).json({
+                success: false,
+                message: error.message
+            });
+        }
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal Server Error",
+            error: error.message
         });
     }
 };
@@ -462,15 +767,54 @@ const publishSurvey = async (req, res) => {
             });
         }
 
+
+        // -------------------------------------------------
+        // Publish Survey
+        // -------------------------------------------------
+
         const result =
             await Survey.publishSurvey(
                 survey_id
             );
 
+
+        // -------------------------------------------------
+        // Send New Survey Notifications
+        // -------------------------------------------------
+
+        if (result.affectedRows > 0) {
+
+            try {
+
+                await sendNewSurveyAvailableNotifications(
+                    survey_id
+                );
+
+            } catch (notificationError) {
+
+                console.error(
+                    "Survey published but notification failed:",
+                    notificationError
+                );
+
+            }
+
+        }
+
+
+        // -------------------------------------------------
+        // Response
+        // -------------------------------------------------
+
         return res.json({
+
             success: true,
-            message: "Survey published successfully",
+
+            message:
+                "Survey published successfully",
+
             data: result
+
         });
 
     } catch (error) {
@@ -478,9 +822,13 @@ const publishSurvey = async (req, res) => {
         console.error(error);
 
         return res.status(500).json({
+
             success: false,
+
             message: error.message
+
         });
+
     }
 };
 
@@ -556,32 +904,34 @@ const archiveSurvey = async (req, res) => {
     }
 };
 
-const getMySurveys = async (req, res) => {
+const saveSurvey = async (req, res) => {
 
     try {
 
         const member_id = req.user.member_id;
+        const { survey_id } = req.body;
 
-        const status =
-            req.query.status !== undefined
-                ? parseInt(req.query.status)
-                : null;
+        const parsedSurveyId = Number(survey_id);
 
-        const result = await Survey.getMySurveys(
+        if (
+            !Number.isInteger(parsedSurveyId) ||
+            parsedSurveyId <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid survey_id is required"
+            });
+        }
+
+        const result = await Survey.saveSurvey(
             member_id,
-            status
+            parsedSurveyId
         );
 
-        return res.status(200).json({
+        return res.status(201).json({
             success: true,
-            counts: {
-                all: Number(result.counts.all_surveys || 0),
-                active: Number(result.counts.active_surveys || 0),
-                completed: Number(result.counts.completed_surveys || 0),
-                draft: Number(result.counts.draft_surveys || 0)
-            },
-            count: result.surveys.length,
-            data: result.surveys
+            message: "Survey saved successfully",
+            data: result
         });
 
     } catch (error) {
@@ -595,16 +945,14 @@ const getMySurveys = async (req, res) => {
     }
 };
 
-const getAvailableSurveys = async (req, res) => {
+const getSavedSurveys = async (req, res) => {
 
     try {
 
         const member_id = req.user.member_id;
 
         const surveys =
-            await Survey.getAvailableSurveys(
-                member_id
-            );
+            await Survey.getSavedSurveys(member_id);
 
         return res.status(200).json({
             success: true,
@@ -621,6 +969,370 @@ const getAvailableSurveys = async (req, res) => {
             message: error.message
         });
     }
+};
+
+const removeSavedSurvey = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+        const { survey_id } = req.body;
+
+        const parsedSurveyId = Number(survey_id);
+
+        if (
+            !Number.isInteger(parsedSurveyId) ||
+            parsedSurveyId <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid survey_id is required"
+            });
+        }
+
+        const result = await Survey.removeSavedSurvey(
+            member_id,
+            parsedSurveyId
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Survey removed from saved successfully",
+            data: result
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+const getMySurveys = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+
+        const status =
+            req.query.status !== undefined
+                ? Number(req.query.status)
+                : null;
+
+        const cursor =
+            req.query.cursor !== undefined
+                ? Number(req.query.cursor)
+                : null;
+
+        const limit =
+            req.query.limit !== undefined
+                ? Number(req.query.limit)
+                : 15;
+
+        const search =
+            req.query.search?.trim() || null;
+
+        if (
+            status !== null &&
+            ![0, 1, 2, 3].includes(status)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid status"
+            });
+        }
+
+        if (
+            cursor !== null &&
+            (!Number.isInteger(cursor) || cursor <= 0)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid cursor"
+            });
+        }
+
+        if (
+            !Number.isInteger(limit) ||
+            limit < 1 ||
+            limit > 50
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "limit must be between 1 and 50"
+            });
+        }
+
+        const result = await Survey.getMySurveys(
+            member_id,
+            status,
+            cursor,
+            limit,
+            search
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "My surveys fetched successfully",
+
+            counts: result.counts,
+
+            totalCount: result.totalCount,
+
+            count: result.surveys.length,
+
+            data: result.surveys,
+
+            pagination: {
+                limit,
+                nextCursor: result.nextCursor,
+                hasMore: result.hasMore
+            }
+        });
+
+    } catch (error) {
+
+        console.error("Error fetching my surveys:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal Server Error"
+        });
+    }
+};
+
+
+const getMySurveyOverview = async (req, res) => {
+
+    try {
+
+        const member_id =
+            req.user.member_id;
+
+        const survey_id =
+            Number(req.params.survey_id);
+
+
+        // ---------------------------------------------
+        // Validate survey_id
+        // ---------------------------------------------
+
+        if (
+            !Number.isInteger(survey_id) ||
+            survey_id <= 0
+        ) {
+
+            return res.status(400).json({
+                success: false,
+                message: "Valid survey_id is required."
+            });
+        }
+
+
+        // ---------------------------------------------
+        // Get Overview
+        // ---------------------------------------------
+
+        const result =
+            await Survey.getMySurveyOverview(
+                survey_id,
+                member_id
+            );
+
+
+        // ---------------------------------------------
+        // Response
+        // ---------------------------------------------
+
+        return res.status(200).json({
+
+            success: true,
+
+            message:
+                "Survey overview fetched successfully.",
+
+            data:
+                result
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Get My Survey Overview Error:",
+            error
+        );
+
+        return res.status(
+            error.statusCode || 500
+        ).json({
+
+            success: false,
+
+            message:
+                error.message ||
+                "Internal Server Error"
+        });
+    }
+};
+
+
+const getSurveyResponses = async (req, res) => {
+
+    try {
+
+        const survey_id =
+            Number(req.params.survey_id);
+
+
+        // -------------------------------------------------
+        // VALIDATE SURVEY ID
+        // -------------------------------------------------
+
+        if (
+            !Number.isInteger(survey_id) ||
+            survey_id <= 0
+        ) {
+
+            return res.status(400).json({
+
+                success: false,
+
+                message:
+                    "Valid survey_id is required"
+            });
+        }
+
+
+        // -------------------------------------------------
+        // QUERY PARAMETERS
+        // -------------------------------------------------
+
+        const {
+            page = 1,
+            limit = 10,
+            search = "",
+            status = "",
+            device = "",
+            date_range = ""
+        } = req.query;
+
+
+        // -------------------------------------------------
+        // FETCH RESPONSES
+        // -------------------------------------------------
+
+        const result =
+            await Survey.getSurveyResponses(
+                survey_id,
+                req.user.member_id,
+                {
+                    page,
+                    limit,
+                    search,
+                    status,
+                    device,
+                    date_range
+                }
+            );
+
+
+        // -------------------------------------------------
+        // RESPONSE
+        // -------------------------------------------------
+
+        return res.status(200).json({
+
+            success: true,
+
+            message:
+                "Survey responses fetched successfully.",
+
+            data: result
+        });
+
+
+    } catch (error) {
+
+        console.error(
+            "Error fetching survey responses:",
+            error
+        );
+
+
+        const statusCode =
+            error.statusCode || 500;
+
+
+        return res.status(statusCode).json({
+
+            success: false,
+
+            message:
+                statusCode === 500
+                    ? "Internal Server Error"
+                    : error.message
+        });
+    }
+};
+
+
+const getSurveyForMe = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+        const tab = req.query.tab || "available";
+
+        const surveys = await Survey.getSurveyForMe(
+            member_id,
+            tab
+        );
+
+        // Build Base URL (Works on Local + Live)
+        const protocol =
+            req.headers["x-forwarded-proto"] || req.protocol;
+
+        const host =
+            req.headers["x-forwarded-host"] || req.get("host");
+
+        const baseUrl = `${protocol}://${host}`;
+
+        surveys.forEach(survey => {
+
+            if (survey.survey_image) {
+
+                // Avoid adding base URL twice
+                if (!survey.survey_image.startsWith("http")) {
+                    survey.survey_image =
+                    `${baseUrl}${survey.survey_image}`;
+                }
+
+            }
+
+        });
+
+        return res.status(200).json({
+            success: true,
+            tab,
+            count: surveys.length,
+            data: surveys
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+
+    }
+
 };
 
 const getSurveyForMeDetails = async (req, res) => {
@@ -660,6 +1372,40 @@ const getSurveyForMeDetails = async (req, res) => {
             });
         }
 
+        const protocol =
+            req.headers["x-forwarded-proto"] || "https";
+
+        const host =
+            req.headers["x-forwarded-host"] || req.hostname;
+
+        const baseUrl = `${protocol}://${host}`;
+
+        if (Array.isArray(result.questions)) {
+
+            result.questions = result.questions.map(question => {
+
+                if (question.question_image) {
+                    question.question_image =
+                        `${baseUrl}${question.question_image}`;
+                }
+
+                if (Array.isArray(question.options)) {
+
+                    question.options = question.options.map(option => {
+
+                        if (option.option_image) {
+                            option.option_image =
+                                `${baseUrl}${option.option_image}`;
+                        }
+
+                        return option;
+                    });
+                }
+
+                return question;
+            });
+        }
+
         return res.status(200).json({
             success: true,
             count: result.questions.length,
@@ -688,8 +1434,15 @@ const submitSurvey = async (req, res) => {
 
     try {
 
-        const { survey_id, answers } = req.body;
+        const {
+            survey_id,
+            question_id,
+            answer,
+            option_ids
+        } = req.body;
+
         const parsedSurveyId = Number(survey_id);
+        const parsedQuestionId = Number(question_id);
 
         if (
             !Number.isInteger(parsedSurveyId) ||
@@ -702,24 +1455,43 @@ const submitSurvey = async (req, res) => {
         }
 
         if (
-            !Array.isArray(answers) ||
-            answers.length === 0
+            !Number.isInteger(parsedQuestionId) ||
+            parsedQuestionId <= 0
         ) {
             return res.status(400).json({
                 success: false,
-                message: "answers must be a non-empty array"
+                message: "Valid question_id is required"
             });
         }
+
+        // ---------------------------------------------
+        // GET DEVICE / BROWSER / OS / IP INFORMATION
+        // ---------------------------------------------
+
+        const deviceInfo = getDeviceInfo(req);
+
+        console.log("Survey Device Info:", deviceInfo);
+
+        // ---------------------------------------------
+        // SAVE SURVEY ANSWER
+        // ---------------------------------------------
 
         const result = await Survey.submitSurvey(
             parsedSurveyId,
             req.user.member_id,
-            answers
+            parsedQuestionId,
+            {
+                answer,
+                option_ids
+            },
+            deviceInfo
         );
 
         return res.status(201).json({
             success: true,
-            message: "Survey submitted successfully",
+            message: result.saved
+                ? "Answer submitted successfully"
+                : "No answer provided for this question",
             data: result
         });
 
@@ -736,6 +1508,306 @@ const submitSurvey = async (req, res) => {
                     ? "Internal Server Error"
                     : error.message
         });
+    }
+};
+
+const previewSubmittedSurvey = async (req, res) => {
+
+    try {
+
+        const survey_id = Number(req.params.survey_id);
+
+        if (
+            !Number.isInteger(survey_id) ||
+            survey_id <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid survey_id is required"
+            });
+        }
+
+        const result = await Survey.previewSubmittedSurvey(
+            survey_id,
+            req.user.member_id
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Survey preview fetched successfully",
+            data: result
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        return res.status(error.statusCode || 500).json({
+            success: false,
+            message:
+                error.statusCode
+                    ? error.message
+                    : "Internal Server Error"
+        });
+    }
+};
+
+const completeSurvey = async (req, res) => {
+
+    try {
+
+        const survey_id = Number(req.body.survey_id);
+        const member_id = req.user.member_id;
+
+        if (
+            !Number.isInteger(survey_id) ||
+            survey_id <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid survey_id is required"
+            });
+        }
+
+        // --------------------------------------------------
+        // STEP 1: Complete Survey
+        // --------------------------------------------------
+
+        const result =
+            await Survey.completeSurvey(
+                survey_id,
+                member_id
+            );
+
+        // --------------------------------------------------
+        // STEP 2: Fetch User + Survey Details
+        // --------------------------------------------------
+
+        const [[user]] = await db.query(
+            `
+            SELECT
+                first_name,
+                personal_email
+            FROM user
+            WHERE member_id = ?
+            LIMIT 1
+            `,
+            [member_id]
+        );
+
+        const [[survey]] = await db.query(
+            `
+            SELECT
+                id,
+                survey_title
+            FROM inp_survey
+            WHERE id = ?
+            LIMIT 1
+            `,
+            [survey_id]
+        );
+
+        // --------------------------------------------------
+        // STEP 3: Send Survey Completed Email
+        // --------------------------------------------------
+
+        if (user && survey) {
+
+            try {
+
+                const templatePath = path.join(
+                    __dirname,
+                    "../email-templates/survey-completed.html"
+                );
+
+                let emailContent =
+                    fs.readFileSync(
+                        templatePath,
+                        "utf8"
+                    );
+
+                emailContent = emailContent
+                    .replace(
+                        /{{asset_base_url}}/g,
+                        process.env.BASE_URL
+                    )
+                    .replace(
+                        /{{first_name}}/g,
+                        user.first_name || ""
+                    )
+                    .replace(
+                        /{{survey_title}}/g,
+                        survey.survey_title || ""
+                    )
+                    .replace(
+                        /{{survey_id}}/g,
+                        String(survey_id)
+                    )
+                    .replace(
+                        /{{completed_on}}/g,
+                        new Date().toLocaleDateString("en-IN")
+                    )
+                    .replace(
+                        /{{reward_amount}}/g,
+                        `${result.reward?.coins || 0} Coins`
+                    )
+                    .replace(
+                        /{{survey_link}}/g,
+                        `${process.env.FRONTEND_URL}/survey-for-me?tab=completed`
+                    )
+                    .replace(
+                        /{{support_email}}/g,
+                        process.env.MAIL_REPLY_TO || ""
+                    )
+                    .replace(
+                        /{{privacy_link}}/g,
+                        `${process.env.FRONTEND_URL}/privacy`
+                    )
+                    .replace(
+                        /{{unsubscribe_link}}/g,
+                        `${process.env.FRONTEND_URL}/unsubscribe`
+                    );
+
+                // Decrypt user's email before sending
+                const decryptedEmail = aesDecrypt(
+                    user.personal_email
+                );
+
+                if (!decryptedEmail) {
+                    throw new Error(
+                        "Unable to decrypt user email"
+                    );
+                }
+
+                await sendEmail({
+                    to: decryptedEmail,
+                    subject: "Survey Completed Successfully",
+                    content: emailContent
+                });
+
+                console.log(
+                    `Survey completion email sent to ${decryptedEmail}`
+                );
+
+            } catch (emailError) {
+
+                // Do NOT fail the survey completion
+                // just because email failed.
+
+                console.error(
+                    "Survey completed but email failed:",
+                    emailError
+                );
+
+            }
+        }
+
+
+        // --------------------------------------------------
+        // STEP 3B: Queue Reward Earned Email
+        // --------------------------------------------------
+
+        if (user && survey) {
+
+            try {
+
+                const decryptedEmail = aesDecrypt(
+                    user.personal_email
+                );
+
+                if (!decryptedEmail) {
+                    throw new Error(
+                        "Unable to decrypt user email"
+                    );
+                }
+
+                const rewardPayload = {
+
+                    asset_base_url:
+                        process.env.BASE_URL,
+
+                    first_name:
+                        user.first_name || "",
+
+                    survey_title:
+                        survey.survey_title || "",
+
+                    survey_id:
+                        String(survey_id),
+
+                    reward_date:
+                        new Date().toLocaleDateString("en-IN"),
+
+                    reward_amount:
+                        `${result.reward?.coins || 0} Coins`,
+
+                    reward_balance:
+                        `${result.reward?.balance_after || 0} Coins`,
+
+                    reward_link:
+                        `${process.env.FRONTEND_URL}/rewards`,
+
+                    support_email:
+                        process.env.MAIL_REPLY_TO || "",
+
+                    privacy_link:
+                        `${process.env.FRONTEND_URL}/privacy`,
+
+                    unsubscribe_link:
+                        `${process.env.FRONTEND_URL}/unsubscribe`
+                };
+
+                await addEmailToQueue({
+                    emailType: "reward_earned",
+                    surveyId: survey_id,
+                    memberId: member_id,
+                    recipientEmail: decryptedEmail,
+                    subject: "Reward Earned",
+                    templateName: "reward-earned.html",
+                    payload: rewardPayload,
+                    priority: 2,
+                    maxAttempts: 5,
+                    idempotencyKey: `reward_earned:${survey_id}:${member_id}`
+                });
+
+                console.log(
+                    `Reward email queued for ${decryptedEmail} - 1 minute delay`
+                );
+
+            } catch (emailQueueError) {
+
+                console.error(
+                    "Survey completed but reward email could not be queued:",
+                    emailQueueError
+                );
+            }
+        }
+
+
+        // --------------------------------------------------
+        // STEP 4: Response
+        // --------------------------------------------------
+
+        return res.status(200).json({
+            success: true,
+            message: result.message,
+            data: result
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Complete Survey Error:",
+            error
+        );
+
+        return res.status(
+            error.statusCode || 500
+        ).json({
+            success: false,
+            message: error.message
+        });
+
     }
 };
 
@@ -817,13 +1889,19 @@ const getIndustries = async (req, res) => {
     try {
 
         const { sector_id } = req.body;
-        if (!sector_id) {
+
+        if (!sector_id || sector_id.length === 0) {
             return res.status(400).json({
                 success: false,
-                message: "sector_id is required in request body"
+                message: "sector_id is required"
             });
         }
-        const industries = await Survey.getIndustries(69, sector_id);
+
+        const sectorIds = Array.isArray(sector_id)
+            ? sector_id
+            : [sector_id];
+
+        const industries = await Survey.getIndustries(69, sectorIds);
 
         return res.status(200).json({
             success: true,
@@ -997,23 +2075,974 @@ const getSurveyQuestions = async (req, res) => {
 
 }
 
-module.exports = {saveSurveyDetails,
+const cloneSurvey = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+        const { survey_id } = req.body;
+
+        if (!survey_id) {
+            return res.status(400).json({
+                success: false,
+                message: "survey_id is required"
+            });
+        }
+
+        const result = await Survey.cloneSurvey(
+            survey_id,
+            member_id
+        );
+
+        return res.status(201).json({
+            success: true,
+            message: "Survey cloned successfully",
+            data: result
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+
+    }
+
+};
+
+
+const toggleSurveyLike = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+
+        const { survey_id } = req.body;
+
+        //--------------------------------------------------
+        // Validation
+        //--------------------------------------------------
+
+        if (!survey_id) {
+
+            return res.status(400).json({
+                success: false,
+                message: "survey_id is required"
+            });
+
+        }
+
+        //--------------------------------------------------
+        // Toggle Like
+        //--------------------------------------------------
+
+        const result = await Survey.toggleSurveyLike(
+            survey_id,
+            member_id
+        );
+
+        // Emit realtime update
+        const io = getIO();
+
+        io.to(`survey_${survey_id}`).emit(
+            "survey_like_updated",
+            result
+        );
+
+        return res.status(200).json({
+
+            success: true,
+
+            message: result.liked
+                ? "Survey liked successfully."
+                : "Survey unliked successfully.",
+
+            data: result
+
+        });
+
+    } catch (error) {
+
+        console.error("Toggle Survey Like Error:", error);
+
+        return res.status(error.statusCode || 500).json({
+
+            success: false,
+
+            message: error.message || "Internal Server Error"
+
+        });
+
+    }
+
+};
+
+
+
+const addSurveyComment = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+
+        const {
+            survey_id,
+            comment,
+            reply_to_comment_id
+        } = req.body;
+
+        //--------------------------------------------------
+        // Validation
+        //--------------------------------------------------
+
+        if (!survey_id) {
+
+            return res.status(400).json({
+                success: false,
+                message: "survey_id is required."
+            });
+        }
+
+        if (!comment || !comment.trim()) {
+
+            return res.status(400).json({
+                success: false,
+                message: "Comment is required."
+            });
+        }
+
+        //--------------------------------------------------
+        // Validate reply_to_comment_id if provided
+        //--------------------------------------------------
+
+        let parsedReplyToCommentId = null;
+
+        if (
+            reply_to_comment_id !== undefined &&
+            reply_to_comment_id !== null &&
+            reply_to_comment_id !== ""
+        ) {
+
+            parsedReplyToCommentId =
+                Number(reply_to_comment_id);
+
+            if (
+                !Number.isInteger(parsedReplyToCommentId) ||
+                parsedReplyToCommentId <= 0
+            ) {
+
+                return res.status(400).json({
+                    success: false,
+                    message: "Valid reply_to_comment_id is required."
+                });
+            }
+        }
+
+        //--------------------------------------------------
+        // Add Comment / Reply
+        //--------------------------------------------------
+
+        const result = await Survey.addSurveyComment(
+            survey_id,
+            member_id,
+            comment.trim(),
+            parsedReplyToCommentId
+        );
+
+        //--------------------------------------------------
+        // Emit realtime update
+        //--------------------------------------------------
+
+        const io = getIO();
+
+        io.to(`survey_${survey_id}`).emit(
+            "survey_comment_added",
+            result
+        );
+
+        //--------------------------------------------------
+        // Response
+        //--------------------------------------------------
+
+        return res.status(200).json({
+
+            success: true,
+
+            message: parsedReplyToCommentId
+                ? "Reply added successfully."
+                : "Comment added successfully.",
+
+            data: result
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Add Survey Comment Error:",
+            error
+        );
+
+        return res.status(
+            error.statusCode || 500
+        ).json({
+
+            success: false,
+
+            message:
+                error.message ||
+                "Internal Server Error"
+
+        });
+    }
+};
+
+
+
+const toggleCommentLike = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+
+        const { comment_id } = req.body;
+
+        //--------------------------------------------------
+        // Validation
+        //--------------------------------------------------
+
+        if (!comment_id) {
+
+            return res.status(400).json({
+                success: false,
+                message: "comment_id is required."
+            });
+
+        }
+
+        //--------------------------------------------------
+        // Toggle Comment Like
+        //--------------------------------------------------
+
+        const result = await Survey.toggleCommentLike(
+            comment_id,
+            member_id
+        );
+
+        //--------------------------------------------------
+        // Emit realtime update
+        //--------------------------------------------------
+
+        const io = getIO();
+
+        io.to(`survey_${result.survey_id}`).emit(
+            "comment_like_updated",
+            result
+        );
+
+        return res.status(200).json({
+
+            success: true,
+
+            message: result.liked
+                ? "Comment liked successfully."
+                : "Comment unliked successfully.",
+
+            data: result
+
+        });
+
+    } catch (error) {
+
+        console.error("Toggle Comment Like Error:", error);
+
+        return res.status(error.statusCode || 500).json({
+
+            success: false,
+
+            message: error.message || "Internal Server Error"
+
+        });
+
+    }
+
+};
+
+
+
+
+const testSurveyInteraction = async (req, res) => {
+
+    try {
+
+        const { comment_id } = req.body;
+
+        const result = await Survey.toggleCommentLike(
+            comment_id,
+            req.user.member_id
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: result.liked
+                ? "Comment liked successfully."
+                : "Comment unliked successfully.",
+            data: result
+        });
+
+    } catch (error) {
+
+        return res.status(error.statusCode || 500).json({
+            success: false,
+            message: error.message
+        });
+
+    }
+
+};
+
+
+const getSurveyComments = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+
+        const { survey_id } = req.params;
+
+        //--------------------------------------------------
+        // Validation
+        //--------------------------------------------------
+
+        const parsedSurveyId = Number(survey_id);
+
+        if (
+            !Number.isInteger(parsedSurveyId) ||
+            parsedSurveyId <= 0
+        ) {
+
+            return res.status(400).json({
+
+                success: false,
+
+                message: "Valid survey_id is required."
+
+            });
+
+        }
+
+        //--------------------------------------------------
+        // Fetch Comments
+        //--------------------------------------------------
+
+        const result = await Survey.getSurveyComments(
+            parsedSurveyId,
+            member_id
+        );
+
+        return res.status(200).json({
+
+            success: true,
+
+            count: result.length,
+
+            data: result
+
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Fetch Survey Comments Error:",
+            error
+        );
+
+        return res.status(
+            error.statusCode || 500
+        ).json({
+
+            success: false,
+
+            message:
+                error.message ||
+                "Internal Server Error"
+
+        });
+
+    }
+
+};
+
+const getCommentReplies = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+
+        const { comment_id } = req.params;
+
+        //--------------------------------------------------
+        // Validation
+        //--------------------------------------------------
+
+        const parsedCommentId =
+            Number(comment_id);
+
+        if (
+            !Number.isInteger(parsedCommentId) ||
+            parsedCommentId <= 0
+        ) {
+
+            return res.status(400).json({
+
+                success: false,
+
+                message:
+                    "Valid comment_id is required."
+
+            });
+        }
+
+        //--------------------------------------------------
+        // Fetch Replies
+        //--------------------------------------------------
+
+        const result =
+            await Survey.getCommentReplies(
+                parsedCommentId,
+                member_id
+            );
+
+        //--------------------------------------------------
+        // Response
+        //--------------------------------------------------
+
+        return res.status(200).json({
+
+            success: true,
+
+            count: result.length,
+
+            data: result
+
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Fetch Comment Replies Error:",
+            error
+        );
+
+        return res.status(
+            error.statusCode || 500
+        ).json({
+
+            success: false,
+
+            message:
+                error.message ||
+                "Internal Server Error"
+
+        });
+    }
+};
+
+
+
+const getSurveyLikes = async (req, res) => {
+
+    try {
+
+        const { survey_id } = req.params;
+
+        const parsedSurveyId = Number(survey_id);
+
+        if (
+            !Number.isInteger(parsedSurveyId) ||
+            parsedSurveyId <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid survey_id is required."
+            });
+        }
+
+        const result = await Survey.getSurveyLikes(parsedSurveyId);
+
+        return res.status(200).json({
+            success: true,
+            count: result.length,
+            data: result
+        });
+
+    } catch (error) {
+
+        console.error("Fetch Survey Likes Error:", error);
+
+        return res.status(error.statusCode || 500).json({
+            success: false,
+            message: error.message || "Internal Server Error"
+        });
+
+    }
+
+};
+
+
+const getMySurveyEngagement = async (req, res) => {
+
+    try {
+
+        const member_id = req.user.member_id;
+
+        const survey_id =
+            Number(req.params.survey_id);
+
+        if (
+            !Number.isInteger(survey_id) ||
+            survey_id <= 0
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid survey_id is required."
+            });
+        }
+
+        const result =
+            await Survey.getMySurveyEngagement(
+                survey_id,
+                member_id
+            );
+
+        return res.status(200).json({
+            success: true,
+            message:
+                "Survey engagement fetched successfully",
+
+            data: result
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Get My Survey Engagement Error:",
+            error
+        );
+
+        return res.status(
+            error.statusCode || 500
+        ).json({
+            success: false,
+            message:
+                error.message ||
+                "Internal Server Error"
+        });
+    }
+};
+
+const getMySurveyCommentReplies = async (req, res) => {
+
+    try {
+
+        const member_id =
+            req.user.member_id;
+
+        const survey_id =
+            Number(req.params.survey_id);
+
+        const comment_id =
+            Number(req.params.comment_id);
+
+        //--------------------------------------------------
+        // Validate Survey ID
+        //--------------------------------------------------
+
+        if (
+            !Number.isInteger(survey_id) ||
+            survey_id <= 0
+        ) {
+
+            return res.status(400).json({
+                success: false,
+                message:
+                    "Valid survey_id is required."
+            });
+        }
+
+        //--------------------------------------------------
+        // Validate Comment ID
+        //--------------------------------------------------
+
+        if (
+            !Number.isInteger(comment_id) ||
+            comment_id <= 0
+        ) {
+
+            return res.status(400).json({
+                success: false,
+                message:
+                    "Valid comment_id is required."
+            });
+        }
+
+        //--------------------------------------------------
+        // Fetch Replies
+        //--------------------------------------------------
+
+        const result =
+            await Survey.getMySurveyCommentReplies(
+                survey_id,
+                comment_id,
+                member_id
+            );
+
+        //--------------------------------------------------
+        // Response
+        //--------------------------------------------------
+
+        return res.status(200).json({
+
+            success: true,
+
+            message:
+                "Survey comment replies fetched successfully.",
+
+            count: result.length,
+
+            data: result
+
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Get My Survey Comment Replies Error:",
+            error
+        );
+
+        return res.status(
+            error.statusCode || 500
+        ).json({
+
+            success: false,
+
+            message:
+                error.message ||
+                "Internal Server Error"
+
+        });
+    }
+};
+
+
+const toggleMySurveyCommentLike = async (req, res) => {
+
+    try {
+
+        const member_id =
+            req.user.member_id;
+
+        const survey_id =
+            Number(req.params.survey_id);
+
+        const comment_id =
+            Number(req.params.comment_id);
+
+        //--------------------------------------------------
+        // Validate Survey ID
+        //--------------------------------------------------
+
+        if (
+            !Number.isInteger(survey_id) ||
+            survey_id <= 0
+        ) {
+
+            return res.status(400).json({
+                success: false,
+                message:
+                    "Valid survey_id is required."
+            });
+        }
+
+        //--------------------------------------------------
+        // Validate Comment ID
+        //--------------------------------------------------
+
+        if (
+            !Number.isInteger(comment_id) ||
+            comment_id <= 0
+        ) {
+
+            return res.status(400).json({
+                success: false,
+                message:
+                    "Valid comment_id is required."
+            });
+        }
+
+        //--------------------------------------------------
+        // Toggle Like
+        //--------------------------------------------------
+
+        const result =
+            await Survey.toggleMySurveyCommentLike(
+                survey_id,
+                comment_id,
+                member_id
+            );
+
+        //--------------------------------------------------
+        // Socket.IO
+        //--------------------------------------------------
+
+        const io = getIO();
+
+        io.to(`survey_${survey_id}`).emit(
+            "comment_like_updated",
+            result
+        );
+
+        //--------------------------------------------------
+        // Response
+        //--------------------------------------------------
+
+        return res.status(200).json({
+
+            success: true,
+
+            message: result.liked
+                ? "Comment liked successfully."
+                : "Comment unliked successfully.",
+
+            data: result
+
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Toggle My Survey Comment Like Error:",
+            error
+        );
+
+        return res.status(
+            error.statusCode || 500
+        ).json({
+
+            success: false,
+
+            message:
+                error.message ||
+                "Internal Server Error"
+
+        });
+    }
+};
+
+const addMySurveyCommentReply = async (req, res) => {
+
+    try {
+
+        const member_id =
+            req.user.member_id;
+
+        const survey_id =
+            Number(req.params.survey_id);
+
+        const comment_id =
+            Number(req.params.comment_id);
+
+        const {
+            comment,
+            reply_to_comment_id = null
+        } = req.body;
+
+        //--------------------------------------------------
+        // Validate Survey ID
+        //--------------------------------------------------
+
+        if (
+            !Number.isInteger(survey_id) ||
+            survey_id <= 0
+        ) {
+
+            return res.status(400).json({
+                success: false,
+                message:
+                    "Valid survey_id is required."
+            });
+        }
+
+        //--------------------------------------------------
+        // Validate Comment ID
+        //--------------------------------------------------
+
+        if (
+            !Number.isInteger(comment_id) ||
+            comment_id <= 0
+        ) {
+
+            return res.status(400).json({
+                success: false,
+                message:
+                    "Valid comment_id is required."
+            });
+        }
+
+        //--------------------------------------------------
+        // Validate Comment
+        //--------------------------------------------------
+
+        if (
+            typeof comment !== "string" ||
+            !comment.trim()
+        ) {
+
+            return res.status(400).json({
+                success: false,
+                message:
+                    "Comment is required."
+            });
+        }
+
+        //--------------------------------------------------
+        // Validate Reply Target
+        //--------------------------------------------------
+
+        let parsedReplyToCommentId = null;
+
+        if (reply_to_comment_id !== null) {
+
+            parsedReplyToCommentId =
+                Number(reply_to_comment_id);
+
+            if (
+                !Number.isInteger(
+                    parsedReplyToCommentId
+                ) ||
+                parsedReplyToCommentId <= 0
+            ) {
+
+                return res.status(400).json({
+                    success: false,
+                    message:
+                        "Invalid reply_to_comment_id."
+                });
+            }
+        }
+
+        //--------------------------------------------------
+        // Add Reply
+        //--------------------------------------------------
+
+        const result =
+            await Survey.addMySurveyCommentReply(
+                survey_id,
+                comment_id,
+                member_id,
+                comment.trim(),
+                parsedReplyToCommentId
+            );
+
+        //--------------------------------------------------
+        // Socket.IO
+        //--------------------------------------------------
+
+        const io = getIO();
+
+        io.to(`survey_${survey_id}`).emit(
+            "comment_added",
+            result
+        );
+
+        //--------------------------------------------------
+        // Response
+        //--------------------------------------------------
+
+        return res.status(201).json({
+
+            success: true,
+
+            message:
+                "Reply added successfully.",
+
+            data: result
+
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Add My Survey Comment Reply Error:",
+            error
+        );
+
+        return res.status(
+            error.statusCode || 500
+        ).json({
+
+            success: false,
+
+            message:
+                error.message ||
+                "Internal Server Error"
+
+        });
+    }
+};
+
+
+module.exports = {
+    saveSurveyDetails,
     updateSurveyDetails,
     saveSurveyQuestions,
+    updateSurveyQuestions,
     previewSurvey,
     publishSurvey,
     closeSurvey,
     archiveSurvey,
+    saveSurvey,
+    getSavedSurveys,
+    removeSavedSurvey,
     getMySurveys,
-    getAvailableSurveys,
+    
+    getMySurveyOverview,
+    getSurveyResponses,
+    
+    getSurveyForMe,
     getSurveyForMeDetails,
     submitSurvey,
+    previewSubmittedSurvey,
+    completeSurvey,
     getSectors,
     getMyActiveSurveys,
     getMyDraftSurveys,
     getMyClosedSurveys,
     getMyDeletedSurveys,
-     getSectorIndustryHierarchy, get_Countries, get_CompanySize, get_CompanyRevenue, getIndustries,
+    getSectorIndustryHierarchy,
+    get_Countries,
+    get_CompanySize,
+    get_CompanyRevenue,
+    get_CompanyType,
+    getIndustries,
     getSurveyDetails,
-getSurveyQuestions,
-deleteSurveyResponse};
+    getSurveyQuestions,
+    deleteSurveyResponse,
+    cloneSurvey,
+    toggleSurveyLike,
+    addSurveyComment,
+    toggleCommentLike,
+    getSurveyComments,
+    getCommentReplies,
+    testSurveyInteraction,
+    getSurveyLikes,
+    
+    getMySurveyEngagement,
+    getMySurveyCommentReplies,
+    toggleMySurveyCommentLike,
+    addMySurveyCommentReply
+    
+};

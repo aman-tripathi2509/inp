@@ -1,10 +1,29 @@
 const CompanyModel = require("../models/companyModel");
 const { CompanyAverageRatings } = require("../models/companyModel");
+const { GlobalCompanySearch, GlobalUserSearch } = require('../models/companyModel');
+
+// ====================== GET ALL COMPANIES ======================
+const getCompaniesAndUsers = async (req, res) => {
+    try {
+        const result = await CompanyModel.fetchCompanyAndInpUser();
+
+        if ((!result.companies || result.companies.length === 0) && 
+            (!result.users || result.users.length === 0)) {
+            return res.status(404).json({ message: "No companies or users found" });
+        }
+
+        res.status(200).json({
+            message: "Companies and Users fetched successfully",
+            data: result
+        });
+    } catch (error) {
+        console.error("Error fetching companies and users:", error);
+        res.status(500).json({ message: "Database error", error: error.message });
+    }
+};
 
 // ====================== GET ALL COMPANIES ======================
 const { AllCompanyListing } = require("../models/companyModel");
-const { GlobalCompanySearch, GlobalUserSearch } = require('../models/companyModel');
-
 
 const toArray = (value) => {
     if (Array.isArray(value)) return value.map(v => v.trim());
@@ -57,20 +76,21 @@ const getAllCompanies = async (req, res) => {
     }
 };
 
-
-
-
 // ====================== GET COMPANY DETAILS BY ID ======================
 const getCompanyDetailsById = async (req, res) => {
     try {
         const { company_id } = req.body;
+
         if (!company_id) {
             return res.status(400).json({ message: "Company ID is required" });
         }
+
         const details = await CompanyModel.CompanyDetailsById(company_id);
+
         if (!details || details.length === 0) {
             return res.status(404).json({ message: "No details found for this company" });
         }
+
         // Transform response
         const formattedDetails = {
             company_id: company_id,
@@ -82,6 +102,7 @@ const getCompanyDetailsById = async (req, res) => {
                 answer: row.answer,
             }))
         };
+
         res.status(200).json({
             message: "Company details fetched successfully",
             data: formattedDetails,
@@ -92,9 +113,7 @@ const getCompanyDetailsById = async (req, res) => {
     }
 };
 
-/**
- * Controller to Average Rating of Companies
- */
+// --- Controller for API endpoint ---
 const getCompanyAverageRatings = async (req, res) => {
     try {
         const { company_id } = req.body;
@@ -102,14 +121,17 @@ const getCompanyAverageRatings = async (req, res) => {
         if (!company_id) {
             return res.status(400).json({ message: "Company ID is required" });
         }
+
         // Call model function
         const avgRatings = await CompanyAverageRatings(company_id);
+
         if (!avgRatings) {
             return res.status(404).json({
                 success: false,
                 message: "No ratings found for this company",
             });
         }
+
         // Convert single object to array
         return res.status(200).json({
             success: true,
@@ -130,11 +152,13 @@ const getCompanyAverageRatings = async (req, res) => {
 const fetchCompanyNames = async (req, res) => {
     try {
         const data = await CompanyModel.getCompanyName();
+
         if (!data || data.length === 0) {
             return res.status(404).json({
                 message: "No company names found"
             });
         }
+
         res.status(200).json({
             message: "Company names fetched successfully",
             data
@@ -186,4 +210,6 @@ const globalSearchController = async (req, res) => {
 };
 
 
-module.exports = {getCompanyDetailsById, getAllCompanies,getCompanyAverageRatings,fetchCompanyNames,globalSearchController };
+
+
+module.exports = { getCompaniesAndUsers, getCompanyDetailsById, getAllCompanies,getCompanyAverageRatings,fetchCompanyNames,globalSearchController};

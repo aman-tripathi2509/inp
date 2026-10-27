@@ -13,7 +13,8 @@ const setupSwagger = (app) => {
     // Use CORS middleware
     app.use(cors());
     app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
-    console.log("Swagger docs available at http://localhost:5000/api-docs");
+   // console.log("Swagger docs available at http://localhost:3000/api-docs");
+   console.log(`Swagger docs available at ${process.env.BASE_URL}/api-docs`);
 };
 
 module.exports = setupSwagger;

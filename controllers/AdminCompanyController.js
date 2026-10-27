@@ -3,31 +3,42 @@ const CompanyModel = require("../models/adminCompanyModel");
 // ====================== GET ALL COMPANIES ======================
 const getCompanies = async (req, res) => {
     try {
+
+        console.log("================================");
+        console.log("GET COMPANIES CONTROLLER HIT");
+        console.log("BODY:", req.body);
+        console.log("================================");
+
         const page = parseInt(req.body.page) || 1;
         const limit = parseInt(req.body.limit) || 15;
 
-        // Convert status text → numeric
-        let statusValue = "";
-        if (req.body.company_status) {
-            const status = req.body.company_status.toLowerCase().trim();
-            if (status === "verified") statusValue = 1;
-            if (status === "pending for verification") statusValue = 2;
-        }
-
         const filters = {
-            company_name: req.body.company_name || "",          // comma-separated
+            company_id: req.body.company_id || "",
+
             company_url: req.body.company_url || "",
             ceo: req.body.ceo || "",
+
+            // Existing headquarter filter
             headquarter: req.body.headquarter || "",
-            company_size: req.body.company_size || "",          // pipe-separated
-            company_revenue: req.body.company_revenue || "",    // comma-separated
-            industry: req.body.industry || "",                  // comma-separated
-            company_status: statusValue || "",
+
+            // New country filter
+            country: req.body.country || "",
+
+            company_size: req.body.company_size || "",
+            company_revenue: req.body.company_revenue || "",
+            industry: req.body.industry || "",
+
+            company_status: req.body.company_status || "",
+
             start_date: req.body.start_date || "",
             end_date: req.body.end_date || ""
         };
 
-        const companies = await CompanyModel.AdminCompanyListing(page, limit, filters);
+        const companies = await CompanyModel.AdminCompanyListing(
+            page,
+            limit,
+            filters
+        );
 
         if (!companies.data || companies.data.length === 0) {
             return res.status(200).json({
@@ -42,14 +53,18 @@ const getCompanies = async (req, res) => {
             });
         }
 
-        res.status(200).json({
+        return res.status(200).json({
             message: "Companies fetched successfully",
             ...companies
         });
 
     } catch (error) {
         console.error("Error fetching companies:", error);
-        res.status(500).json({ message: "Database error", error: error.message });
+
+        return res.status(500).json({
+            message: "Database error",
+            error: error.message
+        });
     }
 };
 
@@ -159,4 +174,9 @@ const getMappedCompanyDetailsByDomain = async (req, res) => {
         res.status(400).json({ message: error.message });
     }
 };
-module.exports = { getCompanies, getCompanyDetailsById, createCompany,getMappedCompanyDetailsByDomain};
+module.exports = { 
+    getCompanies,
+    getCompanyDetailsById,
+    createCompany,
+    getMappedCompanyDetailsByDomain
+};

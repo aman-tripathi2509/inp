@@ -1,15 +1,48 @@
 const express = require("express");
 const router = express.Router();
-const { getCompanies, getCompanyDetailsById, createCompany, getMappedCompanyDetailsByDomain} = require("../controllers/AdminCompanyController");
+const multer = require("multer");
+
+const upload = multer();
+
+const {
+    getCompanies,
+    getCompanyDetailsById,
+    createCompany,
+    getMappedCompanyDetailsByDomain
+} = require("../controllers/AdminCompanyController");
+
 const { authMiddleware } = require("../middlewares/authMiddleware");
 
-// Get Companies
-router.post("/getCompanies", authMiddleware, getCompanies);
-// Get Company Details By ID
-router.post("/getCompanyDetailsById", authMiddleware, getCompanyDetailsById);
-// Insert company data
-router.post("/create-company", authMiddleware, createCompany);
-// New route for fetching raw and mapped company details by domain
-router.post('/get-mapped-by-domain', authMiddleware,getMappedCompanyDetailsByDomain);
+// ====================== GET COMPANIES ======================
+router.post(
+    "/getCompanies",
+    authMiddleware,
+    upload.none(),
+    getCompanies
+);
+
+// ====================== GET COMPANY DETAILS BY ID ======================
+router.post(
+    "/get-company-detail",
+    authMiddleware,
+    upload.none(),
+    getCompanyDetailsById
+);
+
+// ====================== CREATE COMPANY ======================
+router.post(
+    "/add-company",
+    authMiddleware,
+    upload.none(),
+    createCompany
+);
+
+// ====================== GET COMPANY DETAILS BY DOMAIN ======================
+router.post(
+    "/get-company-by-domain",
+    authMiddleware,
+    upload.none(),
+    getMappedCompanyDetailsByDomain
+);
 
 module.exports = router;

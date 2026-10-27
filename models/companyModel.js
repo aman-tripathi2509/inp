@@ -1,5 +1,76 @@
 const db = require("../config/db");
 
+// Fetch all companies from trx_company_registration table
+const fetchCompanyAndInpUser = async () => {
+    try {
+        // Fetch companies with their answers and question_type_header using LEFT JOINs
+        const companySql = `
+            SELECT 
+                c.company_id,
+                c.company_name,
+                c.legal_name,
+                c.company_url,
+                c.ceo,
+                c.company_status,
+                a.question_id,
+                a.answer,
+                q.question_type_header
+            FROM trx_company_registration c
+            LEFT JOIN trx_company_answer a ON c.company_id = a.company_id
+            LEFT JOIN lu_question q ON a.question_id = q.question_id
+        `;
+        const [companyRows] = await db.query(companySql);
+
+        // Group answers by company
+        const companyMap = {};
+        companyRows.forEach(row => {
+            if (!companyMap[row.company_id]) {
+                companyMap[row.company_id] = {
+                    company_id: row.company_id,
+                    company_name: row.company_name,
+                    legal_name: row.legal_name,
+                    company_url: row.company_url,
+                    ceo: row.ceo,
+                    company_status: row.company_status,
+                    answers: []
+                };
+            }
+            if (row.question_id) {
+                companyMap[row.company_id].answers.push({
+                    question_id: row.question_id,
+                    question_type_header: row.question_type_header || null,
+                    answer: row.answer,
+                });
+            }
+        });
+
+        const companies = Object.values(companyMap);
+
+        // Fetch user data separately
+        const userSql = `
+            SELECT 
+                member_id,
+                first_name,
+                middle_name,
+                last_name,
+                country,
+                Job_title,
+                seniority_level,
+                profession_type,
+                state,
+                sector,
+                user_id 
+            FROM user_demographic_details
+        `;
+        const [users] = await db.query(userSql);
+
+        return { companies, users };
+
+    } catch (error) {
+        throw error;
+    }
+};
+
 /**
  * code to fetch all companies
  */
@@ -199,11 +270,7 @@ const AllCompanyListing = async (page = 1, limit = 15, filters = {}) => {
 };
 
 
-
-
-/**
- * Fetch company details from trx_company_answer by company_id
- */
+// Fetch company details from trx_company_answer by company_id
 const CompanyDetailsById = async (companyId) => {
     try {
         const sql = `
@@ -221,9 +288,7 @@ const CompanyDetailsById = async (companyId) => {
     }
 };
 
-/**
- * Fetch company average ratings by company_id
- */
+// --- Fetch company average ratings by company_id ---
 const CompanyAverageRatings = async (companyId) => {
     try {
         const sql = `
@@ -241,6 +306,7 @@ const CompanyAverageRatings = async (companyId) => {
             WHERE company_id = ?
             GROUP BY company_id
         `;
+        
         const [rows] = await db.query(sql, [companyId]);
         return rows.length > 0 ? rows[0] : null;
     } catch (error) {
@@ -249,13 +315,14 @@ const CompanyAverageRatings = async (companyId) => {
     }
 };
 
+// Arrow function to fetch company name
 /**
  * Fetch all company names from trx_company_registration
  */
 const getCompanyName = async () => {
     try {
         const sql = `
-            SELECT company_name 
+            SELECT company_id,company_name 
             FROM trx_company_registration
             ORDER BY company_id ASC
         `;
@@ -430,6 +497,7 @@ const GlobalUserSearch = async (page = 1, limit = 15, searchTerm = '') => {
 };
 
 module.exports = {
+    fetchCompanyAndInpUser,
     CompanyDetailsById,
     AllCompanyListing,
     CompanyAverageRatings,

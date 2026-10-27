@@ -5,27 +5,47 @@ const {
     saveSurveyDetails,
     updateSurveyDetails,
     saveSurveyQuestions,
+    updateSurveyQuestions,
     previewSurvey,
     publishSurvey,
     closeSurvey,
     archiveSurvey,
+    saveSurvey,
+    getSavedSurveys,
+    removeSavedSurvey,
     getMySurveys,
-    getAvailableSurveys,
+    
+    getMySurveyOverview,
+    getSurveyResponses,
+    
+    getSurveyForMe,
     getSurveyForMeDetails,
     submitSurvey,
     get_Countries,
     get_CompanySize,
     get_CompanyRevenue,
+    get_CompanyType,
     getSectorIndustryHierarchy,
     getSectors,
     getIndustries,
-    getMyActiveSurveys,
-    getMyDraftSurveys,
-    getMyClosedSurveys,
-    getMyDeletedSurveys,
     getSurveyDetails,
     getSurveyQuestions,
-    deleteSurveyResponse
+    deleteSurveyResponse,
+    previewSubmittedSurvey,
+    completeSurvey,
+    cloneSurvey,
+    toggleSurveyLike,
+    addSurveyComment,
+    toggleCommentLike,
+    getSurveyComments,
+    testSurveyInteraction,
+    getSurveyLikes,
+    getCommentReplies,
+    
+    getMySurveyEngagement,
+    getMySurveyCommentReplies,
+    toggleMySurveyCommentLike,
+    addMySurveyCommentReply
 } = require("../controllers/surveyController");
 
 const {
@@ -66,6 +86,13 @@ router.post(
     saveSurveyQuestions
 );
 
+router.put(
+    "/update-survey-questions/:survey_id",
+    authMiddleware,
+    uploadSurveyImages,
+    updateSurveyQuestions
+);
+
 // Preview Survey
 router.get(
     "/preview-survey/:survey_id",
@@ -91,6 +118,24 @@ router.post(
     archiveSurvey
 );
 
+router.post(
+    "/save-survey",
+    authMiddleware,
+    saveSurvey
+);
+
+router.get(
+    "/fetch-saved-surveys",
+    authMiddleware,
+    getSavedSurveys
+);
+
+router.delete(
+    "/remove-saved-survey",
+    authMiddleware,
+    removeSavedSurvey
+);
+
 // My Surveys Listing
 router.get(
     "/my-surveys",
@@ -98,11 +143,25 @@ router.get(
     getMySurveys
 );
 
+
+router.get(
+    "/my-surveys/:survey_id/overview",
+    authMiddleware,
+    getMySurveyOverview
+);
+
+router.get(
+    "/my-surveys/:survey_id/responses",
+    authMiddleware,
+    getSurveyResponses
+);
+
+
 // My Fetch survey for user to participate in
 router.get(
     "/survey-for-me",
     authMiddleware,
-    getAvailableSurveys
+    getSurveyForMe
 );
 
 // My Survey detals
@@ -119,39 +178,23 @@ router.post(
     submitSurvey
 );
 
+router.get(
+    "/preview-submitted-survey/:survey_id",
+    authMiddleware,
+    previewSubmittedSurvey
+);
+
+router.post(
+    "/complete-survey",
+    authMiddleware,
+    completeSurvey
+);
+
 // Delete submitted survey response and selected options
 router.delete(
     "/survey-response/:response_id",
     authMiddleware,
     deleteSurveyResponse
-);
-
-// Get Active Surveys of loggedIn user
-router.get(
-    "/active-surveys",
-    authMiddleware,
-    getMyActiveSurveys
-);
-
-// Get Draft Surveys of loggedIn user
-router.get(
-    "/draft-surveys",
-    authMiddleware,
-    getMyDraftSurveys
-);
-
-// Get Closed Surveys of loggedIn user
-router.get(
-    "/closed-surveys",
-    authMiddleware,
-    getMyClosedSurveys
-);
-
-// Get Deleted Surveys of loggedIn user
-router.get(
-    "/deleted-surveys",
-    authMiddleware,
-    getMyDeletedSurveys
 );
 
 // Get Survey details for loggedIn user
@@ -184,7 +227,6 @@ router.post(
 // Countries
 router.post(
     "/countries",
-    authMiddleware,
     get_Countries
 );
 
@@ -192,7 +234,6 @@ router.post(
 // Sectors
 router.post(
     "/sectors",
-    authMiddleware,
     getSectors
 );
 
@@ -211,13 +252,89 @@ router.post(
     get_CompanyRevenue
 );
 
+// Company Type
+router.post(
+    "/company-type",
+    authMiddleware,
+    get_CompanyType
+);
+
 // Industries
 router.post(
     "/industries",
-    authMiddleware,
     getIndustries
 );
 
+router.post(
+    "/clone-survey",
+    authMiddleware,
+    cloneSurvey
+);
 
+router.post(
+    "/like-OnSurvey",
+    authMiddleware,
+    toggleSurveyLike
+);
+
+router.post(
+    "/comment-OnSurvey",
+    authMiddleware,
+    addSurveyComment
+);
+
+router.post(
+    "/like-OnComment",
+    authMiddleware,
+    toggleCommentLike
+);
+
+router.get(
+    "/survey-comments/:survey_id",
+    authMiddleware,
+    getSurveyComments
+);
+
+router.get(
+    "/comment-replies/:comment_id",
+    authMiddleware,
+    getCommentReplies
+);
+
+router.get(
+    "/fetch-survey-likes/:survey_id",
+    authMiddleware,
+    getSurveyLikes
+);
+
+router.post(
+    "/test-survey-interaction",
+    authMiddleware,
+    testSurveyInteraction
+);
+
+router.get(
+    "/my-surveys/:survey_id/engagement",
+    authMiddleware,
+    getMySurveyEngagement
+);
+
+router.get(
+    "/my-surveys/:survey_id/engagement/comments/:comment_id/replies",
+    authMiddleware,
+    getMySurveyCommentReplies
+);
+
+router.post(
+    "/my-surveys/:survey_id/engagement/comments/:comment_id/like",
+    authMiddleware,
+    toggleMySurveyCommentLike
+);
+
+router.post(
+    "/my-surveys/:survey_id/engagement/comments/:comment_id/reply",
+    authMiddleware,
+    addMySurveyCommentReply
+);
 
 module.exports = router;

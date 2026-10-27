@@ -11,23 +11,28 @@ const AdminCompanyListing = async (page = 1, limit = 15, filters = {}) => {
         let params = [];
 
         // ============================================================
-        // ✅ MULTIPLE COMPANY NAME SEARCH (apple, tcs, adidas)
+        // COMPANY ID (single or multiple)
+        // Example: "12" or "12,13,15"
         // ============================================================
-        if (filters.company_name) {
-            const nameList = filters.company_name
+        if (filters.company_id) {
+            const companyIds = String(filters.company_id)
                 .split(',')
-                .map(n => n.trim())
-                .filter(n => n.length > 0);
+                .map(id => id.trim())
+                .filter(id => id.length > 0);
 
-            if (nameList.length > 0) {
-                const placeholders = nameList.map(() => "?").join(",");
-                whereConditions.push(`c.company_name IN (${placeholders})`);
-                params.push(...nameList);
+            if (companyIds.length > 0) {
+                const placeholders = companyIds.map(() => "?").join(",");
+
+                whereConditions.push(
+                    `c.company_id IN (${placeholders})`
+                );
+
+                params.push(...companyIds);
             }
         }
 
         // ============================================================
-        // TEXT SEARCH FILTERS (single)
+        // TEXT SEARCH FILTERS
         // ============================================================
         if (filters.company_url) {
             whereConditions.push(`c.company_url LIKE ?`);
@@ -40,17 +45,79 @@ const AdminCompanyListing = async (page = 1, limit = 15, filters = {}) => {
         }
 
         // ============================================================
-        // HEADQUARTER (single)
+        // HEADQUARTER
         // ============================================================
         if (filters.headquarter) {
             havingConditions.push(`
-                TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(MAX(CASE WHEN a.question_id = 40 THEN a.answer END), ',', 2), ',', -1)) LIKE ?
+                TRIM(
+                    SUBSTRING_INDEX(
+                        SUBSTRING_INDEX(
+                            MAX(CASE WHEN a.question_id = 40 THEN a.answer END),
+                            ',',
+                            2
+                        ),
+                        ',',
+                        -1
+                    )
+                ) LIKE ?
             `);
+
             params.push(`%${filters.headquarter}%`);
         }
 
         // ============================================================
-        // COMPANY STATUS (single)
+        // COUNTRY FILTER
+        // question_id = 40
+        //
+        // First value of answer contains country_id
+        //
+        // Examples:
+        // "102, Tamil Nadu, +91..., email..., 600089" → country_id = 102
+        // "236"                                      → country_id = 236
+        //
+        // Single:
+        // country = 102
+        //
+        // Multiple:
+        // country = 102,236
+        // ============================================================
+        if (filters.country) {
+
+            const countryIds = String(filters.country)
+                .split(',')
+                .map(id => id.trim())
+                .filter(id => id.length > 0);
+
+            if (countryIds.length > 0) {
+
+                const placeholders = countryIds
+                    .map(() => "?")
+                    .join(",");
+
+                whereConditions.push(`
+                    EXISTS (
+                        SELECT 1
+                        FROM trx_company_answer country_answer
+                        WHERE country_answer.company_id = c.company_id
+                        AND country_answer.question_id = 40
+                        AND TRIM(
+                                SUBSTRING_INDEX(
+                                    country_answer.answer,
+                                    ',',
+                                    1
+                                )
+                            ) IN (${placeholders})
+                    )
+                `);
+
+                params.push(...countryIds);
+            }
+        }
+
+        // ============================================================
+        // COMPANY STATUS
+        // 1 = Verified
+        // 2 = Pending for Verification
         // ============================================================
         if (filters.company_status) {
             whereConditions.push(`c.company_status = ?`);
@@ -61,40 +128,66 @@ const AdminCompanyListing = async (page = 1, limit = 15, filters = {}) => {
         // DATE RANGE FILTER
         // ============================================================
         if (filters.start_date && filters.end_date) {
-            whereConditions.push(`DATE(CONVERT_TZ(c.created_on, '+00:00', '+05:30')) BETWEEN ? AND ?`);
+            whereConditions.push(`
+                DATE(CONVERT_TZ(c.created_on, '+00:00', '+05:30'))
+                BETWEEN ? AND ?
+            `);
+
             params.push(filters.start_date, filters.end_date);
+
         } else if (filters.start_date) {
-            whereConditions.push(`DATE(CONVERT_TZ(c.created_on, '+00:00', '+05:30')) >= ?`);
+
+            whereConditions.push(`
+                DATE(CONVERT_TZ(c.created_on, '+00:00', '+05:30')) >= ?
+            `);
+
             params.push(filters.start_date);
+
         } else if (filters.end_date) {
-            whereConditions.push(`DATE(CONVERT_TZ(c.created_on, '+00:00', '+05:30')) <= ?`);
+
+            whereConditions.push(`
+                DATE(CONVERT_TZ(c.created_on, '+00:00', '+05:30')) <= ?
+            `);
+
             params.push(filters.end_date);
         }
 
         // ============================================================
-        // ✅ MULTIPLE COMPANY SIZE SEARCH (pipe-separated)
-        // Example: "Work alone|2-5 employees|6-10 employees"
+        // COMPANY SIZE (multiple)
+        // Example:
+        // "Work alone;2-5 employees;6-10 employees"
         // ============================================================
-        // COMPANY SIZE (multiple, exact match)
-if (filters.company_size) {
-    const sizeList = filters.company_size
-        .split(';')         // use semicolon for multiple, single value works too
-        .map(s => s.trim()) // trim spaces
-        .filter(s => s.length > 0);
+        if (filters.company_size) {
+            const sizeList = filters.company_size
+                .split(';')
+                .map(s => s.trim())
+                .filter(s => s.length > 0);
 
-    if (sizeList.length > 0) {
-        const sizeConditions = sizeList
-            .map(() => `TRIM(MAX(CASE WHEN a.question_id = 42 THEN a.answer END)) = ?`)
-            .join(" OR ");
+            if (sizeList.length > 0) {
 
-        havingConditions.push(`(${sizeConditions})`);
-        sizeList.forEach(s => params.push(s));
-    }
-}
+                const sizeConditions = sizeList
+                    .map(() => `
+                        TRIM(
+                            MAX(
+                                CASE 
+                                    WHEN a.question_id = 42 
+                                    THEN a.answer 
+                                END
+                            )
+                        ) = ?
+                    `)
+                    .join(" OR ");
 
+                havingConditions.push(`(${sizeConditions})`);
+
+                sizeList.forEach(size => {
+                    params.push(size);
+                });
+            }
+        }
 
         // ============================================================
-        // ✅ MULTIPLE COMPANY REVENUE SEARCH (comma-separated)
+        // COMPANY REVENUE (multiple)
         // ============================================================
         if (filters.company_revenue) {
             const revenueList = filters.company_revenue
@@ -103,17 +196,28 @@ if (filters.company_size) {
                 .filter(r => r.length > 0);
 
             if (revenueList.length > 0) {
+
                 const revenueConditions = revenueList
-                    .map(() => `MAX(CASE WHEN a.question_id = 46 THEN a.answer END) LIKE ?`)
+                    .map(() => `
+                        MAX(
+                            CASE 
+                                WHEN a.question_id = 46 
+                                THEN a.answer 
+                            END
+                        ) LIKE ?
+                    `)
                     .join(" OR ");
 
                 havingConditions.push(`(${revenueConditions})`);
-                revenueList.forEach(r => params.push(`%${r}%`));
+
+                revenueList.forEach(revenue => {
+                    params.push(`%${revenue}%`);
+                });
             }
         }
 
         // ============================================================
-        // ✅ MULTIPLE INDUSTRY SEARCH (comma-separated)
+        // INDUSTRY (multiple)
         // ============================================================
         if (filters.industry) {
             const industryList = filters.industry
@@ -122,20 +226,38 @@ if (filters.company_size) {
                 .filter(i => i.length > 0);
 
             if (industryList.length > 0) {
+
                 const industryConditions = industryList
-                    .map(() => `MAX(CASE WHEN a.question_id = 43 THEN a.answer END) LIKE ?`)
+                    .map(() => `
+                        MAX(
+                            CASE 
+                                WHEN a.question_id = 43 
+                                THEN a.answer 
+                            END
+                        ) LIKE ?
+                    `)
                     .join(" OR ");
 
                 havingConditions.push(`(${industryConditions})`);
-                industryList.forEach(i => params.push(`%${i}%`));
+
+                industryList.forEach(industry => {
+                    params.push(`%${industry}%`);
+                });
             }
         }
 
         // ============================================================
         // FINAL CLAUSES
         // ============================================================
-        const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(" AND ")}` : "";
-        const havingClause = havingConditions.length > 0 ? `HAVING ${havingConditions.join(" AND ")}` : "";
+        const whereClause =
+            whereConditions.length > 0
+                ? `WHERE ${whereConditions.join(" AND ")}`
+                : "";
+
+        const havingClause =
+            havingConditions.length > 0
+                ? `HAVING ${havingConditions.join(" AND ")}`
+                : "";
 
         // ============================================================
         // MAIN QUERY
@@ -148,22 +270,70 @@ if (filters.company_size) {
                 c.company_url, 
                 c.ceo, 
                 c.company_status,
-                DATE_FORMAT(CONVERT_TZ(c.created_on, '+00:00', '+05:30'), '%Y-%m-%d') AS created_on,
-                GROUP_CONCAT(CASE WHEN a.question_id = 40 THEN a.answer END SEPARATOR ', ') AS headquarter,
-                MAX(CASE WHEN a.question_id = 42 THEN a.answer END) AS company_size,
-                MAX(CASE WHEN a.question_id = 43 THEN a.answer END) AS industry,
-                MAX(CASE WHEN a.question_id = 46 THEN a.answer END) AS company_revenue,
+
+                DATE_FORMAT(
+                    CONVERT_TZ(c.created_on, '+00:00', '+05:30'),
+                    '%Y-%m-%d'
+                ) AS created_on,
+
+                GROUP_CONCAT(
+                    CASE 
+                        WHEN a.question_id = 40 
+                        THEN a.answer 
+                    END
+                    SEPARATOR ', '
+                ) AS headquarter,
+
+                MAX(
+                    CASE 
+                        WHEN a.question_id = 42 
+                        THEN a.answer 
+                    END
+                ) AS company_size,
+
+                MAX(
+                    CASE 
+                        WHEN a.question_id = 43 
+                        THEN a.answer 
+                    END
+                ) AS industry,
+
+                MAX(
+                    CASE 
+                        WHEN a.question_id = 46 
+                        THEN a.answer 
+                    END
+                ) AS company_revenue,
+
                 CASE 
-                    WHEN MAX(CASE WHEN a.question_id = 38 THEN a.answer END) IS NOT NULL 
-                    THEN CONCAT('https://beta.caqsmt.com/public/company-logo-images/', 
-                                MAX(CASE WHEN a.question_id = 38 THEN a.answer END))
+                    WHEN MAX(
+                        CASE 
+                            WHEN a.question_id = 38 
+                            THEN a.answer 
+                        END
+                    ) IS NOT NULL
+
+                    THEN CONCAT(
+                        'https://beta.caqsmt.com/public/company-logo-images/', 
+                        MAX(
+                            CASE 
+                                WHEN a.question_id = 38 
+                                THEN a.answer 
+                            END
+                        )
+                    )
+
                     ELSE NULL
                 END AS company_logo_url
+
             FROM trx_company_registration c
+
             LEFT JOIN trx_company_answer a 
                 ON c.company_id = a.company_id
                 AND a.question_id IN (40, 42, 43, 46, 38)
+
             ${whereClause}
+
             GROUP BY 
                 c.company_id, 
                 c.company_name, 
@@ -171,11 +341,23 @@ if (filters.company_size) {
                 c.company_url, 
                 c.ceo, 
                 c.company_status
+
             ${havingClause}
+
             LIMIT ? OFFSET ?
         `;
 
         params.push(limit, offset);
+
+
+        console.log("\n========== COMPANY MODEL ==========");
+        console.log("COMPANY ID:", filters.company_id);
+        console.log("WHERE CONDITIONS:", whereConditions);
+        console.log("WHERE CLAUSE:", whereClause);
+        console.log("PARAMS:", params);
+        console.log("FINAL SQL:");
+        console.log(sql);
+        console.log("====================================\n");
 
         const [rows] = await db.query(sql, params);
 
@@ -186,17 +368,27 @@ if (filters.company_size) {
             SELECT COUNT(*) AS total 
             FROM (
                 SELECT c.company_id
+
                 FROM trx_company_registration c
+
                 LEFT JOIN trx_company_answer a 
                     ON c.company_id = a.company_id
                     AND a.question_id IN (40, 42, 43, 46, 38)
+
                 ${whereClause}
+
                 GROUP BY c.company_id
+
                 ${havingClause}
+
             ) AS subquery
         `;
 
-        const [countResult] = await db.query(countSql, params.slice(0, -2));
+        const [countResult] = await db.query(
+            countSql,
+            params.slice(0, -2)
+        );
+
         const total = countResult[0].total;
 
         return {
@@ -205,9 +397,10 @@ if (filters.company_size) {
                 total,
                 page,
                 limit,
-                totalPages: Math.ceil(total / limit),
+                totalPages: Math.ceil(total / limit)
             }
         };
+
     } catch (error) {
         throw error;
     }
